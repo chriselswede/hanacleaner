@@ -1,0 +1,11 @@
+My HANACleaner Configuration: 
+-zb 50
+-tf 42
+-td true
+-ar 42
+-eh 7
+-eu 42
+-fs /dev/sdb1
+-op /tmp/hanacleaneroutput/
+-or 42
+            
