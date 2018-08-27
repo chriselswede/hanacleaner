@@ -583,12 +583,12 @@ def zipBackupLogs(zipBackupLogsSizeLimit, zipBackupPath, zipLinks, zipOut, sqlma
     return nZipped
     
 def cdalias(alias):   # alias e.g. cdtrace, cdhdb, ...
-    command_run = subprocess.check_output(['/bin/bash', '-i', '-c', "alias "+alias])
+    command_run = subprocess.check_output(['/bin/bash', '-l', '-c', "alias "+alias])
     pieces = command_run.strip("\n").strip("alias "+alias+"=").strip("'").strip("cd ").split("/")
     path = ''
     for piece in pieces:
         if piece and piece[0] == '$':
-            piece = (subprocess.check_output(['/bin/bash', '-i', '-c', "echo "+piece])).strip("\n")
+            piece = (subprocess.check_output(['/bin/bash', '-l', '-c', "echo "+piece])).strip("\n")
         path = path + '/' + piece + '/' 
     return path  
     
