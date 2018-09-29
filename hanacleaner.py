@@ -837,7 +837,7 @@ def create_vt_statistics(vtSchemas, sqlman, logman):  #SAP Note 1872652: Creatin
             columns = subprocess.check_output(sqlman.hdbsql+" -j -A -a -x -U " + sqlman.key + " \"select column_name from PUBLIC.TABLE_COLUMNS where table_name = '"+vt[1]+"' and schema_name = '"+vt[0]+"'\"", shell=True).splitlines(1)
             columns =[col.strip('\n').strip('|').strip(' ') for col in columns]
             columns = '"'+'", "'.join(columns)+'"'
-            sql = 'CREATE STATISTICS ON \\"'+vt[0]+'\\".\\"'+vt[1]+'\\" ('+columns+')'        # necessary for tables starting with / 
+            sql = 'CREATE STATISTICS ON \\\"'+vt[0]+'\\\".\\\"'+vt[1]+'\\\" (\\\"'+columns+'\\\")'        # necessary for tables starting with / and for tables with mixed letter case 
             errorlog = "\nERROR: The user represented by the key "+sqlman.key+" could not create statistics on "+vt[0]+"."+vt[1]+". \nOne possible reason for this is insufficient privilege\n"
             errorlog += "\nTry, as the user represented by the key "+sqlman.key+" to simply do  SELECT * FROM "+vt[0]+"."+vt[1]+". If that does not work then it could be that the privileges of source system's technical user (used in the SDA setup) is not sufficient.\n"
             errorlog += "If there is another error (i.e. not insufficient privilege) then please try to execute \n"+sql+"\nin e.g. the SQL editor in SAP HANA Studio. If you get the same error then this has nothing to do with hanacleaner\n"
