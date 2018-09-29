@@ -137,8 +137,9 @@ def printHelp():
     print("         ---- SERVER FULL CHECK ----                                                                                               ")
     print(" -fs     file system, path to server to check for disk full situation before hanacleaner runs, default: blank, i.e. df -h is used  ")
     print('                      Could also be used to specify a couple of servers with e.g. -fs "|grep sapmnt"                               ')
-    print(" -if     ignore filesystems, before hanacleaner starts it checks that there is no disk full situation in any of the filesystems,   ")
-    print("         this flag makes it possible to ignore some filesystems, with comma seperated list, from the  df -h  command, default: ''  ")
+    print(" -if     ignore filesystems and mounts, before hanacleaner starts it checks that there is no disk full situation in any of the     ")
+    print("         filesystems and/or mounts, this flag makes it possible to ignore some filesystems, with comma seperated list, from the    ")
+    print("         df -h  command (filesystems are in the first column and mounts normally in the 5th or 6th column), default: ''            ")
     print(" -df     filesystem check switch [true/false], it is possible to completely ignore the filesystem check (necessary if non-ascii    ")
     print("         comes out from  df -h). However, hanacleaner is NOT supported in case of full filesystem so if you turn this to false     ")
     print("         it is necessary that you check for disk full situation manually! default: true                                            ")
@@ -537,13 +538,17 @@ def max_filesystem_usage_in_percent(file_system, ignore_filesystems, logman):
         for line in lines:
             if not "Filesystem" in line and not "S.ficheros" in line and not "Dateisystem" in line:   # english, spanish, german and ...
                 words = line.split()
-                if len(words) == 1 or len(words) == 6:
-                    filesystem = words[0].strip('\n')
+                if len(words) == 6:
+                    filesystem_and_mount = [words[0].strip('\n'), words[5].strip('\n')]
+                elif len(words) == 5:
+                    filesystem_and_mount = [words[0].strip('\n'), words[4].strip('\n')]
+                else:
+                    log("ERROR, Unexpted number output columns from df -h: \n", words)
                 if len(words) == 6:
                     percentage = int(words[4].strip('%'))
                 if len(words) == 5:
                     percentage = int(words[3].strip('%'))
-                if len(words) > 1 and filesystem not in ignore_filesystems:
+                if len(words) > 1 and filesystem_and_mount[0] not in ignore_filesystems and filesystem_and_mount[1] not in ignore_filesystems:
                     used_percentages.append(percentage)
         maxPercentage = max(used_percentages)
         log(str(maxPercentage)+"%", logman) 
