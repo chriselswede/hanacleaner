@@ -841,7 +841,7 @@ def create_vt_statistics(vtSchemas, sqlman, logman):  #SAP Note 1872652: Creatin
         if not vtSchemas or vt[0] in vtSchemas:  #if schemas for virtual tables are provided, then only consider these schemas for creating statistics
             columns = subprocess.check_output(sqlman.hdbsql+" -j -A -a -x -U " + sqlman.key + " \"select column_name from PUBLIC.TABLE_COLUMNS where table_name = '"+vt[1]+"' and schema_name = '"+vt[0]+"'\"", shell=True).splitlines(1)
             columns =[col.strip('\n').strip('|').strip(' ') for col in columns]
-            columns = '"'+'", "'.join(columns)+'"'
+            columns = '\\\", \\\"'.join(columns)                                                          # necessary for columns with mixed letter case
             sql = 'CREATE STATISTICS ON \\\"'+vt[0]+'\\\".\\\"'+vt[1]+'\\\" (\\\"'+columns+'\\\")'        # necessary for tables starting with / and for tables with mixed letter case 
             errorlog = "\nERROR: The user represented by the key "+sqlman.key+" could not create statistics on "+vt[0]+"."+vt[1]+". \nOne possible reason for this is insufficient privilege\n"
             errorlog += "\nTry, as the user represented by the key "+sqlman.key+" to simply do  SELECT * FROM "+vt[0]+"."+vt[1]+". If that does not work then it could be that the privileges of source system's technical user (used in the SDA setup) is not sufficient.\n"
@@ -942,7 +942,7 @@ def main():
     mergeBeforeComp = 'false'
     outComp = 'false'
     createVTStat = 'false'
-    vtSchemas = [""]
+    vtSchemas = None 
     minRetainedIniDays = "-1" #days
     file_system = "" # by default check all file systems with  df -h
     flag_file = ""    #default: no configuration input file
