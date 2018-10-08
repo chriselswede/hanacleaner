@@ -152,6 +152,9 @@ def printHelp():
     print("         > hdbuserstore SET <DB USER KEY> <ENV> <USERNAME> <PASSWORD>                     , default: SYSTEMKEY                     ")
     print("         It could also be a list of comma seperated userkeys (useful in MDC environments), e.g.: SYSTEMKEY,TENANT1KEY,TENANT2KEY   ")
     print("         Note: It is not possible to use underscore in the user key, e.g. HANA_HOUSEKEEPING is NOT possible                        ")
+    print(" -dbs    DB key, this can be a list of databases accessed from the system defined by -k (-k can only be one key if -dbs is used)   ")               
+    print("         Note: Users with same name and password have to be maintained in all databases   , default: ''  (not used)                ")
+    print("         Example:  -k PQLSYSDB -dbs SYSTEMDB, PQL                                                                                  ")
     print("                                                                                                                                   ")    
     print("                                                                                                                                   ")    
     print("EXAMPLE (trace files, statistics server alerts and backup catalog entries, i.e. not the backups themselves, older than 42 days     ")
@@ -212,11 +215,22 @@ def printDisclaimer():
 ######################## CLASS DEFINITIONS ################################
 
 class SQLManager:
-    def __init__(self, execute_sql, hdbsql_string, dbuserkey, log_sql):
+    def __init__(self, execute_sql, hdbsql_string, dbuserkey, dbase, log_sql):
         self.execute = execute_sql
-        self.hdbsql = hdbsql_string
         self.key = dbuserkey
+        self.db = dbase
         self.log = log_sql
+        if len(dbase) > 1:
+            self.hdbsql_jAU = hdbsql_string + " -j -A -U " + self.key + " -d " + self.db
+            self.hdbsql_jAxU = hdbsql_string + " -j -A -x -U " + self.key + " -d " + self.db
+            self.hdbsql_jAaxU = hdbsql_string + " -j -A -a -x -U " + self.key + " -d " + self.db
+            self.hdbsql_jAQaxU = hdbsql_string + " -j -A -Q -a -x -U " + self.key + " -d " + self.db
+        else:
+            self.hdbsql_jAU = hdbsql_string + " -j -A -U " + self.key
+            self.hdbsql_jAxU = hdbsql_string + " -j -A -x -U " + self.key
+            self.hdbsql_jAaxU = hdbsql_string + " -j -A -a -x -U " + self.key
+            self.hdbsql_jAQaxU = hdbsql_string + " -j -A -Q -a -x -U " + self.key
+
 
 class LogManager:
     def __init__(self, log_path, print_to_std):
@@ -249,7 +263,7 @@ def try_execute_sql(sql, errorlog, sqlman, logman, exit_on_fail = True):
         if sqlman.log:
             log(sql, logman)
         if sqlman.execute:
-            out = subprocess.check_output(sqlman.hdbsql+" -j -A -a -x -U " + sqlman.key + " \""+sql+"\"", shell=True)
+            out = subprocess.check_output(sqlman.hdbsql_jAaxU + " \""+sql+"\"", shell=True)
     except:
         log("ERROR: Could not execute\n"+sql, logman)
         log(errorlog, logman)
@@ -259,7 +273,7 @@ def try_execute_sql(sql, errorlog, sqlman, logman, exit_on_fail = True):
     return [out, succeeded]
 
 def hana_version_revision_maintenancerevision(sqlman, logman):
-    command_run = subprocess.check_output(sqlman.hdbsql+" -j -A -U " + sqlman.key + " \"select value from sys.m_system_overview where name = 'Version'\"", shell=True)
+    command_run = subprocess.check_output(sqlman.hdbsql_jAU + " \"select value from sys.m_system_overview where name = 'Version'\"", shell=True)
     hanaver = command_run.splitlines(1)[2].split('.')[0].replace('| ','')
     hanarev = command_run.splitlines(1)[2].split('.')[2]
     hanamrev = command_run.splitlines(1)[2].split('.')[3]
@@ -269,7 +283,7 @@ def hana_version_revision_maintenancerevision(sqlman, logman):
     return [int(hanaver), int(hanarev), int(hanamrev)]
     
 def hosts(sqlman):
-    hosts = subprocess.check_output(sqlman.hdbsql+" -j -A -a -x -U " + sqlman.key + " \"select distinct(host) from sys.m_host_information\"", shell=True).splitlines(1)
+    hosts = subprocess.check_output(sqlman.hdbsql_jAaxU + " \"select distinct(host) from sys.m_host_information\"", shell=True).splitlines(1)
     hosts = [host.strip('\n').strip('|').strip(' ') for host in hosts]
     return hosts
 
@@ -284,7 +298,7 @@ def sql_for_backup_id_for_min_retained_backups(minRetainedBackups):
 
 def backup_id(minRetainedBackups, minRetainedDays, sqlman):
     if minRetainedDays >= 0:
-        results = subprocess.check_output(sqlman.hdbsql+" -j -A -Q -a -x -U " + sqlman.key + " \"" + sql_for_backup_id_for_min_retained_days(minRetainedDays) + "\"", shell=True).splitlines(1)
+        results = subprocess.check_output(sqlman.hdbsql_jAQaxU + " \"" + sql_for_backup_id_for_min_retained_days(minRetainedDays) + "\"", shell=True).splitlines(1)
         [backupIdForMinRetainedDays, startTimeForMinRetainedDays, dummy] = results if results else ['', '', '']
         if not backupIdForMinRetainedDays:
             backupIdForMinRetainedDays = '-1'
@@ -293,7 +307,7 @@ def backup_id(minRetainedBackups, minRetainedDays, sqlman):
             backupIdForMinRetainedDays = backupIdForMinRetainedDays.strip('\n').strip(' ')
             startTimeForMinRetainedDays = startTimeForMinRetainedDays.strip('\n').strip(' ').split('.')[0]  #removing milliseconds
     if minRetainedBackups >= 0:
-        results = subprocess.check_output(sqlman.hdbsql+" -j -A -Q -a -x -U " + sqlman.key + " \"" + sql_for_backup_id_for_min_retained_backups(minRetainedBackups) + "\"", shell=True).splitlines(1)
+        results = subprocess.check_output(sqlman.hdbsql_jAQaxU + " \"" + sql_for_backup_id_for_min_retained_backups(minRetainedBackups) + "\"", shell=True).splitlines(1)
         [backupIdForMinRetainedBackups, startTimeForMinRetainedBackups, dummy] = results if results else ['', '', '']
         if not backupIdForMinRetainedBackups:
             backupIdForMinRetainedBackups = '-1'
@@ -315,15 +329,15 @@ def sqls_for_backup_catalog_cleanup(minRetainedBackups, minRetainedDays, deleteB
     sqls = []
     backupId = backup_id(minRetainedBackups, minRetainedDays, sqlman)
     if backupId:
-        backupType = subprocess.check_output(sqlman.hdbsql+" -j -A -x -a -Q -U " + sqlman.key + " \"select ENTRY_TYPE_NAME from sys.m_backup_catalog where backup_id = '"+backupId+"'\"", shell=True).strip('\n').strip(' ')
+        backupType = subprocess.check_output(sqlman.hdbsql_jAQaxU + " \"select ENTRY_TYPE_NAME from sys.m_backup_catalog where backup_id = '"+backupId+"'\"", shell=True).strip('\n').strip(' ')
         if backupType == "complete data backup" or backupType == "data snapshot":
             sqls = ["BACKUP CATALOG DELETE ALL BEFORE BACKUP_ID " + backupId]
             if deleteBackups:
                 sqls = ["BACKUP CATALOG DELETE ALL BEFORE BACKUP_ID " + backupId + " COMPLETE"]
         #If it will ever be possible to do    BACKUP CATALOG DELETE BACKUP_ID <log backup id>    then this will be useful:
         else:
-            backupIdStartTime = subprocess.check_output(sqlman.hdbsql+" -j -A -x -a -Q -U " + sqlman.key + " \"select SYS_START_TIME from sys.m_backup_catalog where backup_id = '"+backupId+"'\"", shell=True).strip(' ')         
-            olderBackupIds = subprocess.check_output(sqlman.hdbsql+" -j -A -x -a -Q -U " + sqlman.key + " \"select BACKUP_ID from sys.m_backup_catalog where SYS_START_TIME < '"+backupIdStartTime+"'\"", shell=True).splitlines()
+            backupIdStartTime = subprocess.check_output(sqlman.hdbsql_jAQaxU + " \"select SYS_START_TIME from sys.m_backup_catalog where backup_id = '"+backupId+"'\"", shell=True).strip(' ')         
+            olderBackupIds = subprocess.check_output(sqlman.hdbsql_jAQaxU + " \"select BACKUP_ID from sys.m_backup_catalog where SYS_START_TIME < '"+backupIdStartTime+"'\"", shell=True).splitlines()
             olderBackupIds = [x.strip('\n').strip(' ') for x in olderBackupIds if x]
             for oldID in olderBackupIds:
                 sql = "BACKUP CATALOG DELETE BACKUP_ID " + oldID
@@ -346,29 +360,29 @@ def print_removed_entries(before, after, logman):
 
 def clean_backup_catalog(minRetainedBackups, minRetainedDays, deleteBackups, outputCatalog, outputDeletedCatalog, sqlman, logman):  
     if outputCatalog or outputDeletedCatalog:
-        nCatalogEntries = int(subprocess.check_output(sqlman.hdbsql+" -j -A -x -a -Q -U " + sqlman.key + " \"select count(*) from sys.m_backup_catalog\"", shell=True).strip(' '))
+        nCatalogEntries = int(subprocess.check_output(sqlman.hdbsql_jAQaxU + " \"select count(*) from sys.m_backup_catalog\"", shell=True).strip(' '))
         if nCatalogEntries > 100000:
             log("INPUT ERROR: Please do not use -br true or -bo true if your backup catalog is larger than 100000 entries!", logman)
             os._exit(1)      
-    nDataBackupCatalogEntriesBefore = int(subprocess.check_output(sqlman.hdbsql+" -j -A -x -a -Q -U " + sqlman.key + " \"SELECT COUNT(*) FROM sys.m_backup_catalog where entry_type_name != 'log backup'\"", shell=True).strip(' '))
-    nLogBackupCatalogEntriesBefore = int(subprocess.check_output(sqlman.hdbsql+" -j -A -x -a -Q -U " + sqlman.key + " \"SELECT COUNT(*) FROM sys.m_backup_catalog where entry_type_name = 'log backup'\"", shell=True).strip(' '))
+    nDataBackupCatalogEntriesBefore = int(subprocess.check_output(sqlman.hdbsql_jAQaxU + " \"SELECT COUNT(*) FROM sys.m_backup_catalog where entry_type_name != 'log backup'\"", shell=True).strip(' '))
+    nLogBackupCatalogEntriesBefore = int(subprocess.check_output(sqlman.hdbsql_jAQaxU + " \"SELECT COUNT(*) FROM sys.m_backup_catalog where entry_type_name = 'log backup'\"", shell=True).strip(' '))
     if nDataBackupCatalogEntriesBefore == 0:
         return [0,0]
     sqls_for_cleanup = sqls_for_backup_catalog_cleanup(minRetainedBackups, minRetainedDays, deleteBackups, sqlman)
     if sqls_for_cleanup:
         sql_for_catalog = "select ENTRY_ID, ENTRY_TYPE_NAME, BACKUP_ID, SYS_START_TIME, STATE_NAME from sys.m_backup_catalog"
         if outputCatalog or outputDeletedCatalog:
-            beforeCatalog = subprocess.check_output(sqlman.hdbsql+" -j -A -x -U " + sqlman.key + " \"" + sql_for_catalog + "\"", shell=True)
+            beforeCatalog = subprocess.check_output(sqlman.hdbsql_jAxU + " \"" + sql_for_catalog + "\"", shell=True)
         if outputCatalog:
             log("\nBEFORE:\n"+beforeCatalog, logman)
         for sql_for_cleanup in sqls_for_cleanup:
             errorlog = "\nERROR: The user represented by the key "+sqlman.key+" could not clean backup catalog. \nOne possible reason for this is insufficient privilege, \ne.g. lack of the system privilege BACKUP ADMIN.\n"
             errorlog += "If there is another error (i.e. not insufficient privilege) then please try to execute \n"+sql_for_cleanup+"\nin e.g. the SQL editor in SAP HANA Studio. If you get the same error then this has nothing to do with hanacleaner"
             try_execute_sql(sql_for_cleanup, errorlog, sqlman, logman)                 
-        nDataBackupCatalogEntriesAfter = int(subprocess.check_output(sqlman.hdbsql+" -j -A -x -a -Q -U " + sqlman.key + " \"SELECT COUNT(*) FROM sys.m_backup_catalog where entry_type_name != 'log backup'\"", shell=True).strip(' '))
-        nLogBackupCatalogEntriesAfter = int(subprocess.check_output(sqlman.hdbsql+" -j -A -x -a -Q -U " + sqlman.key + " \"SELECT COUNT(*) FROM sys.m_backup_catalog where entry_type_name = 'log backup'\"", shell=True).strip(' '))
+        nDataBackupCatalogEntriesAfter = int(subprocess.check_output(sqlman.hdbsql_jAQaxU + " \"SELECT COUNT(*) FROM sys.m_backup_catalog where entry_type_name != 'log backup'\"", shell=True).strip(' '))
+        nLogBackupCatalogEntriesAfter = int(subprocess.check_output(sqlman.hdbsql_jAQaxU + " \"SELECT COUNT(*) FROM sys.m_backup_catalog where entry_type_name = 'log backup'\"", shell=True).strip(' '))
         if outputCatalog or outputDeletedCatalog:
-            afterCatalog = subprocess.check_output(sqlman.hdbsql+" -j -A -x -U " + sqlman.key + " \"" + sql_for_catalog + "\"", shell=True)
+            afterCatalog = subprocess.check_output(sqlman.hdbsql_jAxU + " \"" + sql_for_catalog + "\"", shell=True)
         if outputCatalog:
             log("\nAFTER:\n"+afterCatalog, logman)
         if outputDeletedCatalog:
@@ -379,14 +393,14 @@ def clean_backup_catalog(minRetainedBackups, minRetainedDays, deleteBackups, out
           
      
 def clean_trace_files(retainedTraceContentDays, retainedTraceFilesDays, outputTraces, outputRemovedTraces, SID, local_dbinstance, hosts, sqlman, logman):
-    nbrTracesBefore = int(subprocess.check_output(sqlman.hdbsql+" -j -A -x -a -Q -U " + sqlman.key + " \"SELECT COUNT(*) FROM sys.m_tracefiles\"", shell=True).strip(' '))
+    nbrTracesBefore = int(subprocess.check_output(sqlman.hdbsql_jAQaxU + " \"SELECT COUNT(*) FROM sys.m_tracefiles\"", shell=True).strip(' '))
     if nbrTracesBefore == 0:
         return 0  
     if outputTraces:
-        beforeTraces = subprocess.check_output(sqlman.hdbsql+" -j -A -x -U " + sqlman.key + " \"select * from sys.m_tracefiles order by file_mtime desc\"", shell=True)
+        beforeTraces = subprocess.check_output(sqlman.hdbsql_jAxU + " \"select * from sys.m_tracefiles order by file_mtime desc\"", shell=True)
         log("\nBEFORE:\n"+beforeTraces, logman)
     if outputRemovedTraces:
-        beforeTraceFiles = subprocess.check_output(sqlman.hdbsql+" -j -A -a -x -U " + sqlman.key + " \"select HOST, FILE_NAME from sys.m_tracefiles order by file_mtime desc\"", shell=True)
+        beforeTraceFiles = subprocess.check_output(sqlman.hdbsql_jAaxU + " \"select HOST, FILE_NAME from sys.m_tracefiles order by file_mtime desc\"", shell=True)
     if retainedTraceContentDays != "-1":
         oldestRetainedTraceContentDate = datetime.now() + timedelta(days = -int(retainedTraceContentDays))
         sql = "ALTER SYSTEM CLEAR TRACES ('ALERT','CLIENT','CRASHDUMP','EMERGENCYDUMP','EXPENSIVESTATEMENT','RTEDUMP','UNLOAD','ROWSTOREREORG','SQLTRACE','*') UNTIL '"+oldestRetainedTraceContentDate.strftime('%Y-%m-%d')+" "+datetime.now().strftime("%H:%M:%S")+"'" 
@@ -396,7 +410,7 @@ def clean_trace_files(retainedTraceContentDays, retainedTraceFilesDays, outputTr
     if retainedTraceFilesDays != "-1":
         oldestRetainedTraceFilesDate = datetime.now() + timedelta(days = -int(retainedTraceFilesDays))
         sql = "select FILE_NAME from sys.m_tracefiles where file_size != '-1' and file_mtime < '"+oldestRetainedTraceFilesDate.strftime('%Y-%m-%d')+" "+datetime.now().strftime("%H:%M:%S")+"'"  # file_size = -1 --> folder, cannot be removed
-        filesToBeRemoved = subprocess.check_output(sqlman.hdbsql+" -j -A -Q -a -x -U " + sqlman.key + " \"" + sql + "\"", shell=True).splitlines(1)
+        filesToBeRemoved = subprocess.check_output(sqlman.hdbsql_jAQaxU + " \"" + sql + "\"", shell=True).splitlines(1)
         filesToBeRemoved = [file.strip('\n').strip(' ') for file in filesToBeRemoved if file != '\n'] 
         # Ignore files with names that breaks the ALTER command, or kill.sap according to SAP Note 2349144, and backup.log and backint.log since they are taken care of by -zb, see SAP Note 2431472 about hdbdaemon, we do not want to delete any .sem or .status file, and we do not want to delete any links, e.g. .sap<SID>_HDB<inst>
         filesToBeRemoved = [file for file in filesToBeRemoved if not (" " in file or "," in file or "'" in file or "kill.sap" in file or "backup.log" in file or "backint.log" in file or "hdbdaemon.status" in file or "sapstart.sem" in file or ".sap"+SID+"_HDB"+local_dbinstance in file)]
@@ -411,13 +425,13 @@ def clean_trace_files(retainedTraceContentDays, retainedTraceFilesDays, outputTr
                     errorlog = "\nERROR: The user represented by the key "+sqlman.key+" could not remove traces. \nOne possible reason for this is insufficient privilege, \ne.g. lack of the system privilege TRACE ADMIN.\n"
                     errorlog += "If there is another error (i.e. not insufficient privilege) then please try to execute \n"+sql+"\nin e.g. the SQL editor in SAP HANA Studio. If you get the same error then this has nothing to do with hanacleaner"
                     try_execute_sql(sql, errorlog, sqlman, logman)                               
-    nbrTracesAfter = int(subprocess.check_output(sqlman.hdbsql+" -j -A -x -a -Q -U " + sqlman.key + " \"SELECT COUNT(*) FROM sys.m_tracefiles\"", shell=True).strip(' '))
+    nbrTracesAfter = int(subprocess.check_output(sqlman.hdbsql_jAQaxU + " \"SELECT COUNT(*) FROM sys.m_tracefiles\"", shell=True).strip(' '))
     nbrRemovedTraceFiles = nbrTracesBefore - nbrTracesAfter
     if outputTraces:
-        afterTraces = subprocess.check_output(sqlman.hdbsql+" -j -A -x -U " + sqlman.key + " \"select * from sys.m_tracefiles order by file_mtime desc\"", shell=True)
+        afterTraces = subprocess.check_output(sqlman.hdbsql_jAxU + " \"select * from sys.m_tracefiles order by file_mtime desc\"", shell=True)
         log("\nAFTER:\n"+afterTraces, logman)
     if outputRemovedTraces and nbrRemovedTraceFiles:
-        afterTraceFiles = subprocess.check_output(sqlman.hdbsql+" -j -A -a -x -U " + sqlman.key + " \"select HOST, FILE_NAME from sys.m_tracefiles order by file_mtime desc\"", shell=True)
+        afterTraceFiles = subprocess.check_output(sqlman.hdbsql_jAaxU + " \"select HOST, FILE_NAME from sys.m_tracefiles order by file_mtime desc\"", shell=True)
         output_removed_trace_files(beforeTraceFiles, afterTraceFiles, logman)
     return nbrRemovedTraceFiles
 
@@ -452,7 +466,7 @@ def output_removed_trace_files(before, after, logman):
 
 def clean_alerts(minRetainedAlertDays, outputAlerts, outputDeletedAlerts, sqlman, logman):
     try:
-        nbrAlertsBefore = int(subprocess.check_output(sqlman.hdbsql+" -j -A -x -a -Q -U " + sqlman.key + " \"SELECT COUNT(*) FROM _sys_statistics.statistics_alerts_base\"", shell=True).strip(' '))
+        nbrAlertsBefore = int(subprocess.check_output(sqlman.hdbsql_jAQaxU + " \"SELECT COUNT(*) FROM _sys_statistics.statistics_alerts_base\"", shell=True).strip(' '))
     except: 
         log("\nERROR: The user represented by the key "+sqlman.key+" could not find amount of alerts. \nOne possible reason for this is insufficient privilege, \ne.g. lack of the object privilege SELECT on the table _sys_statistics.statistics_alerts_base.\n", logman)
         os._exit(1)
@@ -461,16 +475,16 @@ def clean_alerts(minRetainedAlertDays, outputAlerts, outputDeletedAlerts, sqlman
         outputDeletedAlerts = False
         log("INFO: The flags -ao and -ad were changed to false since there are too many alerts for printout.", logman)
     if outputAlerts or outputDeletedAlerts:
-        beforeAlerts = subprocess.check_output(sqlman.hdbsql+" -j -A -x -U " + sqlman.key + " \"select SNAPSHOT_ID, ALERT_ID, ALERT_TIMESTAMP, ALERT_RATING from _SYS_STATISTICS.STATISTICS_ALERTS_BASE\"", shell=True)
+        beforeAlerts = subprocess.check_output(sqlman.hdbsql_jAxU + " \"select SNAPSHOT_ID, ALERT_ID, ALERT_TIMESTAMP, ALERT_RATING from _SYS_STATISTICS.STATISTICS_ALERTS_BASE\"", shell=True)
     if outputAlerts:
         log("\nBEFORE:\n"+beforeAlerts, logman)
     sql = "DELETE FROM _SYS_STATISTICS.STATISTICS_ALERTS_BASE WHERE ALERT_TIMESTAMP < ADD_DAYS(CURRENT_TIMESTAMP, -"+str(minRetainedAlertDays)+")"
     errorlog = "\nERROR: The user represented by the key "+sqlman.key+" could not delete alerts. \nOne possible reason for this is insufficient privilege, \ne.g. lack of the object privilege DELETE on the table _sys_statistics.statistics_alerts_base.\n"
     errorlog += "If there is another error (i.e. not insufficient privilege) then please try to execute \n"+sql+"\nin e.g. the SQL editor in SAP HANA Studio. If you get the same error then this has nothing to do with hanacleaner"
     try_execute_sql(sql, errorlog, sqlman, logman)     
-    nbrAlertsAfter = int(subprocess.check_output(sqlman.hdbsql+" -j -A -x -a -Q -U " + sqlman.key + " \"SELECT COUNT(*) FROM _sys_statistics.statistics_alerts_base\"", shell=True).strip(' '))
+    nbrAlertsAfter = int(subprocess.check_output(sqlman.hdbsql_jAQaxU + " \"SELECT COUNT(*) FROM _sys_statistics.statistics_alerts_base\"", shell=True).strip(' '))
     if outputAlerts or outputDeletedAlerts:
-        afterAlerts = subprocess.check_output(sqlman.hdbsql+" -j -A -x -U " + sqlman.key + " \"select SNAPSHOT_ID, ALERT_ID, ALERT_TIMESTAMP, ALERT_RATING from _SYS_STATISTICS.STATISTICS_ALERTS_BASE\"", shell=True)
+        afterAlerts = subprocess.check_output(sqlman.hdbsql_jAxU + " \"select SNAPSHOT_ID, ALERT_ID, ALERT_TIMESTAMP, ALERT_RATING from _SYS_STATISTICS.STATISTICS_ALERTS_BASE\"", shell=True)
     if outputAlerts:
         log("\nAFTER:\n"+afterAlerts, logman)
     if outputDeletedAlerts:
@@ -482,7 +496,7 @@ def clean_ini(minRetainedIniDays, version, revision, mrevision, sqlman, logman):
         log("\nERROR: the -ir flag is only supported starting with SAP HANA 2.0 SPS03. You run on SAP HANA "+str(version)+" revision "+str(revision)+" maintenance revision "+str(mrevision), logman)
         os._exit(1)
     try:
-        nbrIniHistBefore = int(subprocess.check_output(sqlman.hdbsql+" -j -A -x -a -Q -U " + sqlman.key + " \"SELECT COUNT(*) FROM SYS.M_INIFILE_CONTENT_HISTORY\"", shell=True).strip(' '))
+        nbrIniHistBefore = int(subprocess.check_output(sqlman.hdbsql_jAQaxU + " \"SELECT COUNT(*) FROM SYS.M_INIFILE_CONTENT_HISTORY\"", shell=True).strip(' '))
     except: 
         log("\nERROR: The user represented by the key "+sqlman.key+" could not find amount of inifile history. \nOne possible reason for this is insufficient privilege, \ne.g. lack of the object privilege SELECT on the view SYS.M_INIFILE_CONTENT_HISTORY.\n", logman)
         os._exit(1)
@@ -490,13 +504,13 @@ def clean_ini(minRetainedIniDays, version, revision, mrevision, sqlman, logman):
     errorlog = "\nERROR: The user represented by the key "+sqlman.key+" could not delete inifile history. \nOne possible reason for this is insufficient privilege.\n"
     errorlog += "If there is another error (i.e. not insufficient privilege) then please try to execute \n"+sql+"\nin e.g. the SQL editor in SAP HANA Studio. If you get the same error then this has nothing to do with hanacleaner"
     try_execute_sql(sql, errorlog, sqlman, logman)     
-    nbrIniHistAfter = int(subprocess.check_output(sqlman.hdbsql+" -j -A -x -a -Q -U " + sqlman.key + " \"SELECT COUNT(*) FROM SYS.M_INIFILE_CONTENT_HISTORY\"", shell=True).strip(' '))
+    nbrIniHistAfter = int(subprocess.check_output(sqlman.hdbsql_jAQaxU + " \"SELECT COUNT(*) FROM SYS.M_INIFILE_CONTENT_HISTORY\"", shell=True).strip(' '))
     return nbrIniHistBefore - nbrIniHistAfter
 
 def clean_objlock(minRetainedObjLockDays, sqlman, logman):
     try:
         sql = "select count(*) FROM _SYS_STATISTICS.HOST_OBJECT_LOCK_STATISTICS_BASE WHERE OBJECT_NAME = '(unknown)'"
-        nbrObjLockBefore = int(subprocess.check_output(sqlman.hdbsql+" -j -A -x -a -Q -U " + sqlman.key + " \""+sql+"\"", shell=True).strip(' '))
+        nbrObjLockBefore = int(subprocess.check_output(sqlman.hdbsql_jAQaxU + " \""+sql+"\"", shell=True).strip(' '))
     except: 
         errorlog = "\nERROR: The user represented by the key "+sqlman.key+" could not select object locks. \nOne possible reason for this is insufficient privilege, \ne.g. lack of the object privilege SELECT on the table _SYS_STATISTICS.HOST_OBJECT_LOCK_STATISTICS_BASE.\n"
         errorlog += "If there is another error (i.e. not insufficient privilege) then please try to execute \n"+sql+"\nin e.g. the SQL editor in SAP HANA Studio. If you get the same error then this has nothing to do with hanacleaner"
@@ -505,12 +519,12 @@ def clean_objlock(minRetainedObjLockDays, sqlman, logman):
     errorlog = "\nERROR: The user represented by the key "+sqlman.key+" could not delete object locks. \nOne possible reason for this is insufficient privilege, \ne.g. lack of the object privilege DELETE on the table _SYS_STATISTICS.HOST_OBJECT_LOCK_STATISTICS_BASE.\n"
     errorlog += "If there is another error (i.e. not insufficient privilege) then please try to execute \n"+sql+"\nin e.g. the SQL editor in SAP HANA Studio. If you get the same error then this has nothing to do with hanacleaner"
     try_execute_sql(sql, errorlog, sqlman, logman)         
-    nbrObjLockAfter = int(subprocess.check_output(sqlman.hdbsql+" -j -A -x -a -Q -U " + sqlman.key + " \"select count(*) FROM _SYS_STATISTICS.HOST_OBJECT_LOCK_STATISTICS_BASE WHERE OBJECT_NAME = '(unknown)'\"", shell=True).strip(' '))
+    nbrObjLockAfter = int(subprocess.check_output(sqlman.hdbsql_jAQaxU + " \"select count(*) FROM _SYS_STATISTICS.HOST_OBJECT_LOCK_STATISTICS_BASE WHERE OBJECT_NAME = '(unknown)'\"", shell=True).strip(' '))
     return nbrObjLockBefore - nbrObjLockAfter
 
 def clean_objhist(objHistMaxSize, outputObjHist, sqlman, logman):
     try:
-        objHistSizeBefore = int(subprocess.check_output(sqlman.hdbsql+" -j -A -x -a -Q -U " + sqlman.key + " \"select disk_size from SYS.M_TABLE_PERSISTENCE_LOCATION_STATISTICS where table_name = 'OBJECT_HISTORY'\"", shell=True).strip(' '))
+        objHistSizeBefore = int(subprocess.check_output(sqlman.hdbsql_jAQaxU + " \"select disk_size from SYS.M_TABLE_PERSISTENCE_LOCATION_STATISTICS where table_name = 'OBJECT_HISTORY'\"", shell=True).strip(' '))
     except: 
         log("\nERROR: The user represented by the key "+sqlman.key+" could not find size of object history. \nOne possible reason for this is insufficient privilege, \ne.g. lack of the object privilege SELECT on the table SYS.M_TABLE_PERSISTENCE_LOCATION_STATISTICS.\n", logman)
         os._exit(1)  
@@ -519,7 +533,7 @@ def clean_objhist(objHistMaxSize, outputObjHist, sqlman, logman):
         errorlog = "\nERROR: The user represented by the key "+sqlman.key+" could not clean the object history. \nOne possible reason for this is insufficient privilege, \ne.g. lack of the object privilege DELETE on the table _SYS_REPO.OBJECT_HISTORY.\n"
         errorlog += "If there is another error (i.e. not insufficient privilege) then please try to execute \n"+sql+"\nin e.g. the SQL editor in SAP HANA Studio. If you get the same error then this has nothing to do with hanacleaner"
         try_execute_sql(sql, errorlog, sqlman, logman)  
-    objHistSizeAfter = int(subprocess.check_output(sqlman.hdbsql+" -j -A -x -a -Q -U " + sqlman.key + " \"select disk_size from SYS.M_TABLE_PERSISTENCE_LOCATION_STATISTICS where table_name = 'OBJECT_HISTORY'\"", shell=True).strip(' '))
+    objHistSizeAfter = int(subprocess.check_output(sqlman.hdbsql_jAQaxU + " \"select disk_size from SYS.M_TABLE_PERSISTENCE_LOCATION_STATISTICS where table_name = 'OBJECT_HISTORY'\"", shell=True).strip(' '))
     if outputObjHist:
         log("Object History was:"+str(objHistSizeBefore/1000000)+" mb and is now "+str(objHistSizeAfter/1000000)+" mb.", logman)
     return (objHistSizeBefore - objHistSizeAfter)/1000000  
@@ -599,31 +613,31 @@ def cdalias(alias):   # alias e.g. cdtrace, cdhdb, ...
     return path  
     
 def reclaim_logsegments(maxFreeLogsegments, sqlman, logman):
-    nTotFreeLogsegmentsBefore = int(subprocess.check_output(sqlman.hdbsql+" -j -A -x -a -Q -U " + sqlman.key + " \"SELECT COUNT(*) FROM SYS.M_LOG_SEGMENTS WHERE STATE = 'Free'\"", shell=True, stderr=subprocess.STDOUT).strip(' '))
+    nTotFreeLogsegmentsBefore = int(subprocess.check_output(sqlman.hdbsql_jAQaxU + " \"SELECT COUNT(*) FROM SYS.M_LOG_SEGMENTS WHERE STATE = 'Free'\"", shell=True, stderr=subprocess.STDOUT).strip(' '))
     if nTotFreeLogsegmentsBefore == 0:
         return 0          
-    listOfPorts = subprocess.check_output(sqlman.hdbsql+" -j -A -a -x -U " + sqlman.key + " \"SELECT DISTINCT PORT FROM SYS.M_LOG_SEGMENTS\"", shell=True).splitlines(1)
+    listOfPorts = subprocess.check_output(sqlman.hdbsql_jAaxU + " \"SELECT DISTINCT PORT FROM SYS.M_LOG_SEGMENTS\"", shell=True).splitlines(1)
     listOfPorts = [port.strip('\n').strip('|').strip(' ') for port in listOfPorts]
     nFreeLogsegmentsPerServices = []
     for port in listOfPorts:
-        nFreeLogs = int(subprocess.check_output(sqlman.hdbsql+" -j -A -a -x -Q -U " + sqlman.key + " \"SELECT COUNT(*) FROM SYS.M_LOG_SEGMENTS WHERE STATE = 'Free' AND PORT = '"+port+"'\"", shell=True).strip(' '))
+        nFreeLogs = int(subprocess.check_output(sqlman.hdbsql_jAQaxU + " \"SELECT COUNT(*) FROM SYS.M_LOG_SEGMENTS WHERE STATE = 'Free' AND PORT = '"+port+"'\"", shell=True).strip(' '))
         nFreeLogsegmentsPerServices.append(nFreeLogs)
     if max(nFreeLogsegmentsPerServices) > maxFreeLogsegments:
         sql = "ALTER SYSTEM RECLAIM LOG"
         errorlog = "\nERROR: The user represented by the key "+sqlman.key+" could not reclaim logs. \nOne possible reason for this is insufficient privilege, \ne.g. lack of the privilege LOG ADMIN.\n"
         errorlog += "If there is another error (i.e. not insufficient privilege) then please try to execute \n"+sql+"\nin e.g. the SQL editor in SAP HANA Studio. If you get the same error then this has nothing to do with hanacleaner"
         try_execute_sql(sql, errorlog, sqlman, logman)        
-    nTotFreeLogsegmentsAfter = int(subprocess.check_output(sqlman.hdbsql+" -j -A -x -a -Q -U " + sqlman.key + " \"SELECT COUNT(*) FROM SYS.M_LOG_SEGMENTS WHERE STATE = 'Free'\"", shell=True).strip(' '))
+    nTotFreeLogsegmentsAfter = int(subprocess.check_output(sqlman.hdbsql_jAQaxU + " \"SELECT COUNT(*) FROM SYS.M_LOG_SEGMENTS WHERE STATE = 'Free'\"", shell=True).strip(' '))
     return nTotFreeLogsegmentsBefore - nTotFreeLogsegmentsAfter
     
     
 def clean_events(minRetainedDaysForHandledEvents, minRetainedDaysForEvents, sqlman, logman):
-    nHandledEventsBefore = int(subprocess.check_output(sqlman.hdbsql+" -j -A -x -a -Q -U " + sqlman.key + " \"SELECT COUNT(*) FROM SYS.M_EVENTS WHERE STATE = 'HANDLED'\"", shell=True).strip(' '))
-    nEventsBefore = int(subprocess.check_output(sqlman.hdbsql+" -j -A -x -a -Q -U " + sqlman.key + " \"SELECT COUNT(*) FROM SYS.M_EVENTS \"", shell=True).strip(' '))
+    nHandledEventsBefore = int(subprocess.check_output(sqlman.hdbsql_jAQaxU + " \"SELECT COUNT(*) FROM SYS.M_EVENTS WHERE STATE = 'HANDLED'\"", shell=True).strip(' '))
+    nEventsBefore = int(subprocess.check_output(sqlman.hdbsql_jAQaxU + " \"SELECT COUNT(*) FROM SYS.M_EVENTS \"", shell=True).strip(' '))
     if nEventsBefore == 0:
         return [0,0,0,0]    
     oldestDayForKeepingHandledEvent = datetime.now() + timedelta(days = -int(minRetainedDaysForHandledEvents))
-    listOfHandledEventsToRemove = subprocess.check_output(sqlman.hdbsql+" -j -A -a -x -U " + sqlman.key + " \"SELECT HOST, PORT, ID FROM SYS.M_EVENTS WHERE STATE = 'HANDLED' AND CREATE_TIME < '"+oldestDayForKeepingHandledEvent.strftime('%Y-%m-%d')+" 00:00:00'\"", shell=True).splitlines(1)
+    listOfHandledEventsToRemove = subprocess.check_output(sqlman.hdbsql_jAaxU + " \"SELECT HOST, PORT, ID FROM SYS.M_EVENTS WHERE STATE = 'HANDLED' AND CREATE_TIME < '"+oldestDayForKeepingHandledEvent.strftime('%Y-%m-%d')+" 00:00:00'\"", shell=True).splitlines(1)
     listOfHandledEventsToRemove = [event.strip('\n').strip('|').split('|') for event in listOfHandledEventsToRemove]
     listOfHandledEventsToRemove = [[evComp.strip(' ') for evComp in event] for event in listOfHandledEventsToRemove]
     for event in listOfHandledEventsToRemove:
@@ -634,7 +648,7 @@ def clean_events(minRetainedDaysForHandledEvents, minRetainedDaysForEvents, sqlm
         try_execute_sql(sql1, errorlog, sqlman, logman)              
         try_execute_sql(sql2, errorlog, sqlman, logman)
     oldestDayForKeepingEvent = datetime.now() + timedelta(days = -int(minRetainedDaysForEvents))    
-    listOfEventsToRemove = subprocess.check_output(sqlman.hdbsql+" -j -A -a -x -U " + sqlman.key + " \"SELECT HOST, PORT, ID FROM SYS.M_EVENTS WHERE CREATE_TIME < '"+oldestDayForKeepingEvent.strftime('%Y-%m-%d')+" 00:00:00'\"", shell=True).splitlines(1)
+    listOfEventsToRemove = subprocess.check_output(sqlman.hdbsql_jAaxU + " \"SELECT HOST, PORT, ID FROM SYS.M_EVENTS WHERE CREATE_TIME < '"+oldestDayForKeepingEvent.strftime('%Y-%m-%d')+" 00:00:00'\"", shell=True).splitlines(1)
     listOfEventsToRemove = [event.strip('\n').strip('|').split('|') for event in listOfEventsToRemove]
     listOfEventsToRemove = [[evComp.strip(' ') for evComp in event] for event in listOfEventsToRemove]
     for event in listOfEventsToRemove:
@@ -646,13 +660,13 @@ def clean_events(minRetainedDaysForHandledEvents, minRetainedDaysForEvents, sqlm
         try_execute_sql(sql1, errorlog, sqlman, logman)              
         try_execute_sql(sql2, errorlog, sqlman, logman)
         try_execute_sql(sql3, errorlog, sqlman, logman)              
-    nHandledEventsAfter = int(subprocess.check_output(sqlman.hdbsql+" -j -A -x -a -Q -U " + sqlman.key + " \"SELECT COUNT(*) FROM SYS.M_EVENTS WHERE STATE = 'HANDLED'\"", shell=True).strip(' '))
-    nEventsAfter = int(subprocess.check_output(sqlman.hdbsql+" -j -A -x -a -Q -U " + sqlman.key + " \"SELECT COUNT(*) FROM SYS.M_EVENTS \"", shell=True).strip(' '))    
+    nHandledEventsAfter = int(subprocess.check_output(sqlman.hdbsql_jAQaxU + " \"SELECT COUNT(*) FROM SYS.M_EVENTS WHERE STATE = 'HANDLED'\"", shell=True).strip(' '))
+    nEventsAfter = int(subprocess.check_output(sqlman.hdbsql_jAQaxU + " \"SELECT COUNT(*) FROM SYS.M_EVENTS \"", shell=True).strip(' '))    
     return [nHandledEventsBefore - nHandledEventsAfter, nEventsBefore - nEventsAfter, nEventsAfter, nHandledEventsAfter]
 
 
 def clean_audit_logs(retainedAuditLogDays, sqlman, logman):  # for this, both Audit Admin and Audit Operator is needed
-    nbrLogsBefore = int(subprocess.check_output(sqlman.hdbsql+" -j -A -x -a -Q -U " + sqlman.key + " \"SELECT COUNT(*) FROM sys.audit_log\"", shell=True).strip(' '))
+    nbrLogsBefore = int(subprocess.check_output(sqlman.hdbsql_jAQaxU + " \"SELECT COUNT(*) FROM sys.audit_log\"", shell=True).strip(' '))
     if nbrLogsBefore == 0:
         return 0  
     oldestRetainedAuditContentDate = datetime.now() + timedelta(days = -int(retainedAuditLogDays))
@@ -660,12 +674,12 @@ def clean_audit_logs(retainedAuditLogDays, sqlman, logman):  # for this, both Au
     errorlog = "\nERROR: The user represented by the key "+sqlman.key+" could not clear traces. \nOne possible reason for this is insufficient privilege, \ne.g. lack of the system privilege AUDIT ADMIN and/or AUDIT OPERATOR.\n"
     errorlog += "If there is another error (i.e. not insufficient privilege) then please try to execute \n"+sql+"\nin e.g. the SQL editor in SAP HANA Studio. If you get the same error then this has nothing to do with hanacleaner"
     try_execute_sql(sql, errorlog, sqlman, logman)                     
-    nbrLogsAfter = int(subprocess.check_output(sqlman.hdbsql+" -j -A -x -a -Q -U " + sqlman.key + " \"SELECT COUNT(*) FROM sys.audit_log\"", shell=True).strip(' '))
+    nbrLogsAfter = int(subprocess.check_output(sqlman.hdbsql_jAQaxU + " \"SELECT COUNT(*) FROM sys.audit_log\"", shell=True).strip(' '))
     return nbrLogsBefore - nbrLogsAfter    
         
     
 def defragment(fragmentationLimit, outputFragmentation, sqlman, logman):
-    fragPerPortBefore = subprocess.check_output(sqlman.hdbsql+" -j -A -a -x -U " + sqlman.key + " \"SELECT HOST, PORT, USED_SIZE, TOTAL_SIZE from SYS.M_VOLUME_FILES WHERE FILE_TYPE = 'DATA'\" ", shell=True).splitlines(1)
+    fragPerPortBefore = subprocess.check_output(sqlman.hdbsql_jAaxU + " \"SELECT HOST, PORT, USED_SIZE, TOTAL_SIZE from SYS.M_VOLUME_FILES WHERE FILE_TYPE = 'DATA'\" ", shell=True).splitlines(1)
     fragPerPortBefore = [port.strip('\n').strip('|').split('|') for port in fragPerPortBefore]    
     fragPerPortBefore = [[elem.strip(' ') for elem in port] for port in fragPerPortBefore]    
     fragPerPortBefore = [port+[round(((float(port[3])-float(port[2]))/float(port[3])),2)*100] for port in fragPerPortBefore]  
@@ -682,7 +696,7 @@ def defragment(fragmentationLimit, outputFragmentation, sqlman, logman):
             errorlog += "If there is another error (i.e. not insufficient privilege) then please try to execute \n"+sql+"\nin e.g. the SQL editor in SAP HANA Studio. If you get the same error then this has nothing to do with hanacleaner"
             errorlog += "Note: If you use System Replication see Q19 in SAP Note 1999880"
             try_execute_sql(sql, errorlog, sqlman, logman)             
-    fragPerPortAfter = subprocess.check_output(sqlman.hdbsql+" -j -A -a -x -U " + sqlman.key + " \"SELECT HOST, PORT, USED_SIZE, TOTAL_SIZE from SYS.M_VOLUME_FILES WHERE FILE_TYPE = 'DATA'\" ", shell=True).splitlines(1)
+    fragPerPortAfter = subprocess.check_output(sqlman.hdbsql_jAaxU + " \"SELECT HOST, PORT, USED_SIZE, TOTAL_SIZE from SYS.M_VOLUME_FILES WHERE FILE_TYPE = 'DATA'\" ", shell=True).splitlines(1)
     fragPerPortAfter = [port.strip('\n').strip('|').split('|') for port in fragPerPortAfter]    
     fragPerPortAfter = [[elem.strip(' ') for elem in port] for port in fragPerPortAfter]    
     fragPerPortAfter = [port+[round(((float(port[3])-float(port[2]))/float(port[3])),2)*100] for port in fragPerPortAfter]        
@@ -701,12 +715,12 @@ def defragment(fragmentationLimit, outputFragmentation, sqlman, logman):
     return fragChange
     
 def reclaim_rs_containers(outputRcContainers, sqlman, logman):
-    nTablesWithMultipleRSContainersBefore = int(subprocess.check_output(sqlman.hdbsql+" -j -A -x -a -Q -U " + sqlman.key + " \"SELECT COUNT(TABLE_NAME) FROM SYS.M_RS_TABLES WHERE CONTAINER_COUNT > 1\"", shell=True).strip(' '))
-    nContCount = int(subprocess.check_output(sqlman.hdbsql+" -j -A -x -a -Q -U " + sqlman.key + " \"SELECT COUNT(CONTAINER_COUNT) FROM SYS.M_RS_TABLES WHERE CONTAINER_COUNT > 1\"", shell=True).strip(' '))    
+    nTablesWithMultipleRSContainersBefore = int(subprocess.check_output(sqlman.hdbsql_jAQaxU + " \"SELECT COUNT(TABLE_NAME) FROM SYS.M_RS_TABLES WHERE CONTAINER_COUNT > 1\"", shell=True).strip(' '))
+    nContCount = int(subprocess.check_output(sqlman.hdbsql_jAQaxU + " \"SELECT COUNT(CONTAINER_COUNT) FROM SYS.M_RS_TABLES WHERE CONTAINER_COUNT > 1\"", shell=True).strip(' '))    
     nUnnecessaryRSContainersBefore = 0
     if nContCount:    
-        nUnnecessaryRSContainersBefore = int(subprocess.check_output(sqlman.hdbsql+" -j -A -x -a -Q -U " + sqlman.key + " \"SELECT SUM(CONTAINER_COUNT) FROM SYS.M_RS_TABLES WHERE CONTAINER_COUNT > 1\"", shell=True).strip(' ')) - nTablesWithMultipleRSContainersBefore
-    tablesWithMultipleRSContainers = subprocess.check_output(sqlman.hdbsql+" -j -A -a -x -U " + sqlman.key + " \"SELECT SCHEMA_NAME, TABLE_NAME from SYS.M_RS_TABLES WHERE CONTAINER_COUNT > 1\" ", shell=True).splitlines(1)
+        nUnnecessaryRSContainersBefore = int(subprocess.check_output(sqlman.hdbsql_jAQaxU + " \"SELECT SUM(CONTAINER_COUNT) FROM SYS.M_RS_TABLES WHERE CONTAINER_COUNT > 1\"", shell=True).strip(' ')) - nTablesWithMultipleRSContainersBefore
+    tablesWithMultipleRSContainers = subprocess.check_output(sqlman.hdbsql_jAaxU + " \"SELECT SCHEMA_NAME, TABLE_NAME from SYS.M_RS_TABLES WHERE CONTAINER_COUNT > 1\" ", shell=True).splitlines(1)
     tablesWithMultipleRSContainers = [port.strip('\n').strip('|').split('|') for port in tablesWithMultipleRSContainers]    
     tablesWithMultipleRSContainers = [[elem.strip(' ') for elem in port] for port in tablesWithMultipleRSContainers]   
     if nUnnecessaryRSContainersBefore > 0:
@@ -716,7 +730,7 @@ def reclaim_rs_containers(outputRcContainers, sqlman, logman):
             errorlog += "Unfortunately there is NO nice way to give privileges to the DB User to be allowed to do this.\nEither you can run hanacleaner as SYSTEM user (NOT recommended) or grant DATA ADMIN to the user (NOT recommended).\n"               
             errorlog += "If there is another error (i.e. not insufficient privilege) then please try to execute \n"+sql+"\nin e.g. the SQL editor in SAP HANA Studio. If you get the same error then this has nothing to do with hanacleaner"
             try_execute_sql(sql, errorlog, sqlman, logman)          
-    nTablesWithMultipleRSContainersAfter = int(subprocess.check_output(sqlman.hdbsql+" -j -A -x -a -Q -U " + sqlman.key + " \"SELECT COUNT(TABLE_NAME) FROM SYS.M_RS_TABLES WHERE CONTAINER_COUNT > 1\"", shell=True).strip(' '))
+    nTablesWithMultipleRSContainersAfter = int(subprocess.check_output(sqlman.hdbsql_jAQaxU + " \"SELECT COUNT(TABLE_NAME) FROM SYS.M_RS_TABLES WHERE CONTAINER_COUNT > 1\"", shell=True).strip(' '))
     if nTablesWithMultipleRSContainersAfter != 0:
         log("\nERROR: Something went wrong. After reclaim of multiple row store table containers we still have "+str(nTablesWithMultipleRSContainersAfter)+" tables with multiple row store containers. Please investigate.", logman)
         os._exit(1)
@@ -778,13 +792,13 @@ def force_compression(maxRawComp, maxEstComp, maxRowComp, maxMemComp, minDistCom
     #Tables with no compression
     tablesToCompress = []
     if all(c > -1 for c in [maxRawComp, maxEstComp]):
-        tablesToCompress = subprocess.check_output(sqlman.hdbsql+" -j -A -a -x -U " + sqlman.key + " \""+sql_nocomp+"\" ", shell=True).splitlines(1)
+        tablesToCompress = subprocess.check_output(sqlman.hdbsql_jAaxU + " \""+sql_nocomp+"\" ", shell=True).splitlines(1)
         tablesToCompress = [table.strip('\n').strip('|').split('|') for table in tablesToCompress]    
         tablesToCompress = [[elem.strip(' ') for elem in table] for table in tablesToCompress]
     #Columns with default compression
     moreTablesToCompress = []
     if all(c > -1 for c in [maxRowComp, maxMemComp, minDistComp]):        
-        moreTablesToCompress = subprocess.check_output(sqlman.hdbsql+" -j -A -a -x -U " + sqlman.key + " \""+sql_default+"\" ", shell=True).splitlines(1)
+        moreTablesToCompress = subprocess.check_output(sqlman.hdbsql_jAaxU + " \""+sql_default+"\" ", shell=True).splitlines(1)
         moreTablesToCompress = [table.strip('\n').strip('|').split('|') for table in moreTablesToCompress]    
         moreTablesToCompress = [[elem.strip(' ') for elem in table] for table in moreTablesToCompress]
         for newtab in moreTablesToCompress:   
@@ -793,7 +807,7 @@ def force_compression(maxRawComp, maxEstComp, maxRowComp, maxMemComp, minDistCom
     #Tables with too much UDIVs
     moreTablesToCompress = []
     if all(c > -1 for c in [maxQuotaComp, maxUDIVComp]):        
-        moreTablesToCompress = subprocess.check_output(sqlman.hdbsql+" -j -A -a -x -U " + sqlman.key + " \""+sql_udivs+"\" ", shell=True).splitlines(1)
+        moreTablesToCompress = subprocess.check_output(sqlman.hdbsql_jAaxU + " \""+sql_udivs+"\" ", shell=True).splitlines(1)
         moreTablesToCompress = [table.strip('\n').strip('|').split('|') for table in moreTablesToCompress]    
         moreTablesToCompress = [[elem.strip(' ') for elem in table] for table in moreTablesToCompress]
         for newtab in moreTablesToCompress:   
@@ -802,7 +816,7 @@ def force_compression(maxRawComp, maxEstComp, maxRowComp, maxMemComp, minDistCom
     #Columns with SPARE or PREFIXED
     moreTablesToCompress = []
     if maxBLOCKComp > -1:        
-        moreTablesToCompress = subprocess.check_output(sqlman.hdbsql+" -j -A -a -x -U " + sqlman.key + " \""+sql_block+"\" ", shell=True).splitlines(1)
+        moreTablesToCompress = subprocess.check_output(sqlman.hdbsql_jAaxU + " \""+sql_block+"\" ", shell=True).splitlines(1)
         moreTablesToCompress = [table.strip('\n').strip('|').split('|') for table in moreTablesToCompress]    
         moreTablesToCompress = [[elem.strip(' ') for elem in table] for table in moreTablesToCompress]
         for newtab in moreTablesToCompress:   
@@ -830,16 +844,16 @@ def force_compression(maxRawComp, maxEstComp, maxRowComp, maxMemComp, minDistCom
     
 def create_vt_statistics(vtSchemas, sqlman, logman):  #SAP Note 1872652: Creating statistics on a virtual table can be an expensive operation. 
     #Default statistics type: HISTOGRAM --> Creates a data statistics object that helps the query optimizer estimate the data distribution in a single-column data source --> Here we create a HISTOGRAM for ALL COLUMNS of the Virtual Tables
-    nVTs = int(subprocess.check_output(sqlman.hdbsql+" -j -A -x -a -Q -U " + sqlman.key + " \"select count(*) from SYS.VIRTUAL_TABLES\"", shell=True).strip(' '))
-    nVTsWithoutStatBefore = int(subprocess.check_output(sqlman.hdbsql+" -j -A -x -a -Q -U " + sqlman.key + " \"select COUNT(*) from SYS.VIRTUAL_TABLES where TABLE_NAME NOT IN (select distinct DATA_SOURCE_OBJECT_NAME from SYS.DATA_STATISTICS)\"", shell=True).strip(' '))
+    nVTs = int(subprocess.check_output(sqlman.hdbsql_jAQaxU + " \"select count(*) from SYS.VIRTUAL_TABLES\"", shell=True).strip(' '))
+    nVTsWithoutStatBefore = int(subprocess.check_output(sqlman.hdbsql_jAQaxU + " \"select COUNT(*) from SYS.VIRTUAL_TABLES where TABLE_NAME NOT IN (select distinct DATA_SOURCE_OBJECT_NAME from SYS.DATA_STATISTICS)\"", shell=True).strip(' '))
     if not nVTsWithoutStatBefore:
         return [nVTs, 0]
-    listOfVTsWithoutStat = subprocess.check_output(sqlman.hdbsql+" -j -A -a -x -U " + sqlman.key + " \"select SCHEMA_NAME, TABLE_NAME from SYS.VIRTUAL_TABLES where TABLE_NAME NOT IN (select distinct DATA_SOURCE_OBJECT_NAME from SYS.DATA_STATISTICS)\"", shell=True).splitlines(1)
+    listOfVTsWithoutStat = subprocess.check_output(sqlman.hdbsql_jAaxU + " \"select SCHEMA_NAME, TABLE_NAME from SYS.VIRTUAL_TABLES where TABLE_NAME NOT IN (select distinct DATA_SOURCE_OBJECT_NAME from SYS.DATA_STATISTICS)\"", shell=True).splitlines(1)
     listOfVTsWithoutStat = [vt.strip('\n').strip('|').split('|') for vt in listOfVTsWithoutStat]    
     listOfVTsWithoutStat = [[elem.strip(' ') for elem in vt] for vt in listOfVTsWithoutStat]       
     for vt in listOfVTsWithoutStat: 
         if not vtSchemas or vt[0] in vtSchemas:  #if schemas for virtual tables are provided, then only consider these schemas for creating statistics
-            columns = subprocess.check_output(sqlman.hdbsql+" -j -A -a -x -U " + sqlman.key + " \"select column_name from PUBLIC.TABLE_COLUMNS where table_name = '"+vt[1]+"' and schema_name = '"+vt[0]+"'\"", shell=True).splitlines(1)
+            columns = subprocess.check_output(sqlman.hdbsql_jAaxU + " \"select column_name from PUBLIC.TABLE_COLUMNS where table_name = '"+vt[1]+"' and schema_name = '"+vt[0]+"'\"", shell=True).splitlines(1)
             columns =[col.strip('\n').strip('|').strip(' ') for col in columns]
             columns = '\\\", \\\"'.join(columns)                                                          # necessary for columns with mixed letter case
             sql = 'CREATE STATISTICS ON \\\"'+vt[0]+'\\\".\\\"'+vt[1]+'\\\" (\\\"'+columns+'\\\")'        # necessary for tables starting with / and for tables with mixed letter case 
@@ -848,7 +862,7 @@ def create_vt_statistics(vtSchemas, sqlman, logman):  #SAP Note 1872652: Creatin
             errorlog += "If there is another error (i.e. not insufficient privilege) then please try to execute \n"+sql+"\nin e.g. the SQL editor in SAP HANA Studio. If you get the same error then this has nothing to do with hanacleaner\n"
             errorlog += "It could be that the respective ODBC driver was not properly set up. Please then follow the SAP HANA Administration Guide."
             try_execute_sql(sql, errorlog, sqlman, logman)  
-    nVTsWithoutStatAfter = int(subprocess.check_output(sqlman.hdbsql+" -j -A -x -a -Q -U " + sqlman.key + " \"select COUNT(*) from SYS.VIRTUAL_TABLES where TABLE_NAME NOT IN (select distinct DATA_SOURCE_OBJECT_NAME from SYS.DATA_STATISTICS)\"", shell=True).strip(' '))
+    nVTsWithoutStatAfter = int(subprocess.check_output(sqlman.hdbsql_jAQaxU + " \"select COUNT(*) from SYS.VIRTUAL_TABLES where TABLE_NAME NOT IN (select distinct DATA_SOURCE_OBJECT_NAME from SYS.DATA_STATISTICS)\"", shell=True).strip(' '))
     return [nVTs, nVTsWithoutStatBefore - nVTsWithoutStatAfter]
 
 def clean_output(minRetainedOutputDays, sqlman, logman):
@@ -909,6 +923,7 @@ def main():
                                # KEY SYSTEMKEY
                                #     ENV : mo-fc8d991e0:30015
                                #     USER: SYSTEM
+    dbases = ['']
     retainedTraceContentDays = "-1"
     retainedTraceFilesDays = "-1"
     retainedDumpDays = "-1"
@@ -1099,6 +1114,8 @@ def main():
                         virtual_local_host = flagValue
                     if firstWord == '-k':
                         dbuserkeys = [x for x in flagValue.split(',')]
+                    if firstWord == '-dbs':
+                        dbases = [x for x in flagValue.split(',')]
 
     #####################   INPUT ARGUMENTS (these would overwrite whats in the configuration file)   ####################     
     if '-h' in sys.argv or '--help' in sys.argv:
@@ -1221,6 +1238,8 @@ def main():
         virtual_local_host = sys.argv[sys.argv.index('-vlh') + 1]
     if '-k' in sys.argv:
         dbuserkeys = [x for x in sys.argv[  sys.argv.index('-k') + 1   ].split(',')]
+    if '-dbs' in sys.argv:
+        dbases = [x for x in sys.argv[  sys.argv.index('-dbs') + 1   ].split(',')]
 
     ############# STD OUT, LOG DIRECTORY and LOG MANAGER #########
     std_out = checkAndConvertBooleanFlag(std_out, "-so", LogManager("", True))
@@ -1442,6 +1461,10 @@ def main():
     if minRetainedOutputDays >= 0 and out_path == "":
         log("INPUT ERROR: -op has to be specified if -or is. Please see --help for more information.", logman)
         os._exit(1)
+    ### dbases, -dbs, and dbuserkeys, -k
+    if len(dbases) > 1 and len(dbuserkeys) > 1:
+        log("INPUT ERROR: -k may only specify one key if -dbs is used. Please see --help for more information.", logman)
+        os._exit(1)
     
     ############ GET LOCAL HOST and SID ##########
     local_host = subprocess.check_output("hostname", shell=True).replace('\n','') if virtual_local_host == "" else virtual_local_host
@@ -1467,119 +1490,124 @@ def main():
                 print "ERROR: The hosts provided with the user key, "+dbuserkey+", does not all have the same instance number"
                 os._exit(1)
             local_dbinstance = dbinstances[local_host_index]
-            ############# SQL MANAGER ##############
-            sqlman = SQLManager(execute_sql, hdbsql_string, dbuserkey, out_sql)
-            if sqlman.execute:
-                log("***********************************************************\n"+datetime.now().strftime("%Y-%m-%d %H:%M:%S")+"\nhanacleaner by "+dbuserkey+" on "+SID+"("+local_dbinstance+") with \n"+" ".join(sys.argv)+"\nCleanup Statements will be executed (-es is default true)\nBefore using HANACleaner read the disclaimer!\npython hanacleaner.py --disclaimer\n***********************************************************", logman) 
-            else:
-                log("*********************************************\n"+datetime.now().strftime("%Y-%m-%d %H:%M:%S")+"\nhanacleaner by "+dbuserkey+"\non "+SID+"("+local_dbinstance+") with \n"+" ".join(sys.argv)+"\nCleanup Statements will NOT be executed\nBefore using HANACleaner read the disclaimer!\npython hanacleaner.py --disclaimer\n*********************************************", logman) 
-            ############ CHECK THAT USER CAN CONNECT TO HANA ###############  
-            sql = "SELECT * from DUMMY" 
-            errorlog = "USER ERROR: The user represented by the key "+dbuserkey+" cannot connect to the system. Make sure this user is properly saved in hdbuserstore."
-            [dummy_out, succeeded] = try_execute_sql(sql, errorlog, sqlman, logman)
-            dummy_out = dummy_out.strip("\n").strip("|").strip(" ") 
-            if sqlman.execute and (dummy_out != 'X' or not succeeded):
-                log("USER ERROR: The user represented by the key "+dbuserkey+" cannot connect to the system. Make sure this user is properly saved in hdbuserstore.", logman)
-                os._exit(1)
-            ##### HANA VERSIOIN COMPATABILITY ######    
-            [version, revision, mrevision] = hana_version_revision_maintenancerevision(sqlman, logman)
-            if retainedTraceContentDays != "-1" and (version < 2 and revision < 120):
-                log("VERSION ERROR: -tc is not supported for SAP HANA rev. < 120. (The UNTIL option is new with SPS12.)", logman)
-                os._exit(1)            
-            ###### START ALL HOUSE KEEPING TASKS ########
-            if minRetainedBackups >= 0 or minRetainedDays >= 0:
-                [nCleanedData, nCleanedLog] = clean_backup_catalog(minRetainedBackups, minRetainedDays, deleteBackups, outputCatalog, outputDeletedCatalog, sqlman, logman)
-                log(str(nCleanedData)+" data backup entries and "+str(nCleanedLog)+" log backup entries were removed from the backup catalog", logman)
-            else:
-                log("    (Cleaning of the backup catalog was not done since -be and -bd were both negative (or not specified))", logman)
-            if retainedTraceContentDays != "-1" or retainedTraceFilesDays != "-1":
-                nCleaned = clean_trace_files(retainedTraceContentDays, retainedTraceFilesDays, outputTraces, outputRemovedTraces, SID, local_dbinstance, hosts(sqlman), sqlman, logman)
-                log(str(nCleaned)+" trace files were removed", logman)
-            else:
-                log("    (Cleaning traces was not done since -tc and -tf were both -1 (or not specified))", logman)
-            if retainedDumpDays != "-1":
-                nCleaned = clean_dumps(retainedDumpDays, sqlman, logman)
-                log(str(nCleaned)+" fullsysteminfodump zip files (that can contain both fullsystem dumps and runtime dumps) were removed", logman)
-            else:
-                log("    (Cleaning dumps was not done since -dr was -1 (or not specified))", logman)
-            if retainedAnyFileDays != "-1":
-                nCleaned = clean_anyfile(retainedAnyFileDays, anyFilePaths, anyFileWords, sqlman, logman)
-                log(str(nCleaned)+" general files were removed", logman)
-            else:
-                log("    (Cleaning of general files was not done since -gr was -1 (or not specified))", logman)
-            if zipBackupLogsSizeLimit >= 0:
-                nZipped = zipBackupLogs(zipBackupLogsSizeLimit, zipBackupPath, zipLinks, zipOut, sqlman, logman)
-                log(str(nZipped)+" backup logs were compressed", logman)
-            else:
-                log("    (Compression of the backup logs was not done since -zb was negative (or not specified))", logman)
-            if minRetainedAlertDays >= 0:
-                nCleaned = clean_alerts(minRetainedAlertDays, outputAlerts, outputDeletedAlerts, sqlman, logman)
-                log(str(nCleaned)+" alerts were removed", logman)
-            else:
-                log("    (Cleaning of the alerts was not done since -ar was negative (or not specified))", logman)
-            if minRetainedObjLockDays >= 0:
-                nCleaned = clean_objlock(minRetainedObjLockDays, sqlman, logman)
-                log(str(nCleaned)+" object locks entries with unknown object names were removed", logman)
-            else:
-                log("    (Cleaning of unknown object locks entries was not done since -kr was negative (or not specified))", logman)
-            if objHistMaxSize >= 0:
-                memoryCleaned = clean_objhist(objHistMaxSize, outputObjHist, sqlman, logman)
-                log(str(memoryCleaned)+" mb were cleaned from object history", logman)
-            else:
-                log("    (Cleaning of the object history was not done since -om was negative (or not specified))", logman)
-            if maxFreeLogsegments >= 0:
-                nReclaimed = reclaim_logsegments(maxFreeLogsegments, sqlman, logman)
-                log(str(nReclaimed)+" log segments were reclaimed", logman)
-            else:
-                log("    (Reclaim of free logsements was not done since -lr was negative (or not specified))", logman)
-            if minRetainedDaysForHandledEvents >= 0 or minRetainedDaysForEvents >= 0:
-                nEventsCleaned = clean_events(minRetainedDaysForHandledEvents, minRetainedDaysForEvents, sqlman, logman)
-                log(str(nEventsCleaned[1])+" events were cleaned, "+str(nEventsCleaned[0])+" of those were handled. There are "+str(nEventsCleaned[2])+" events left, "+str(nEventsCleaned[3])+" of those are handled.", logman)
-            else:
-                log("    (Cleaning of events was not done since -eh and -eu were negative (or not specified))", logman)
-            if retainedAuditLogDays != "-1":
-                nCleaned = clean_audit_logs(retainedAuditLogDays, sqlman, logman)
-                log(str(nCleaned)+" entries in the audit log table were removed", logman)
-            else:
-                log("    (Cleaning audit logs was not done since -ur was -1 (or not specified))", logman)                
-            if fragmentationLimit >= 0:
-                defragmentedPerPort = defragment(fragmentationLimit, outputFragmentation, sqlman, logman)
-                if defragmentedPerPort:
-                    for port in defragmentedPerPort:
-                        if port[2] > 0:
-                            log("For Host "+str(port[0])+" and Port "+str(port[1])+" defragmentation changed by "+str(port[2])+" %", logman)
-                        else:
-                            log("Defragmentation was tried for Host "+str(port[0])+" and Port "+str(port[1])+" but it changed by "+str(port[2])+" %", logman)
+            ############# MULTIPLE DATABASES #######
+            for dbase in dbases:
+                ############# SQL MANAGER ##############
+                sqlman = SQLManager(execute_sql, hdbsql_string, dbuserkey, dbase, out_sql)
+                db_string = ''
+                if dbase:
+                    db_string = 'on DB '+dbase
+                if sqlman.execute:
+                    log("***********************************************************\n"+datetime.now().strftime("%Y-%m-%d %H:%M:%S")+"\nhanacleaner by "+dbuserkey+" on "+SID+"("+local_dbinstance+") "+db_string+" with \n"+" ".join(sys.argv)+"\nCleanup Statements will be executed (-es is default true)\nBefore using HANACleaner read the disclaimer!\npython hanacleaner.py --disclaimer\n***********************************************************", logman) 
                 else:
-                    log("Defragmentation was not done since there was not enough fragmentation for any service", logman)
-            else:
-                log("    (Defragmentation was not done since -fl was negative (or not specified))", logman)
-            if rcContainers:
-                nReclaimedContainers = reclaim_rs_containers(outputRcContainers, sqlman, logman)
-                log(nReclaimedContainers[1]+" row store containers were reclaimed from "+nReclaimedContainers[0]+" row store tables", logman)
-            else:
-                log("    (Reclaim of row store containers was not done since -rc was negative (or not specified))", logman)
-            if all(c > -1 for c in [maxRawComp, maxEstComp]) or all(c > -1 for c in [maxRowComp, maxMemComp, minDistComp]) or all(c > -1 for c in [maxQuotaComp, maxUDIVComp]) or maxBLOCKComp > -1:
-                nTablesForcedCompression = force_compression(maxRawComp, maxEstComp, maxRowComp, maxMemComp, minDistComp, maxQuotaComp, maxUDIVComp, maxBLOCKComp, partComp, mergeBeforeComp, version, revision, mrevision, outComp, sqlman, logman)
-                if nTablesForcedCompression[1]:
-                    log("Tried re-optimize compression on "+str(nTablesForcedCompression[0])+" tables and failed on "+str(nTablesForcedCompression[1])+" (probably due to insufficient privileges)", logman)
+                    log("*********************************************\n"+datetime.now().strftime("%Y-%m-%d %H:%M:%S")+"\nhanacleaner by "+dbuserkey+"\non "+SID+"("+local_dbinstance+") "+db_string+" with \n"+" ".join(sys.argv)+"\nCleanup Statements will NOT be executed\nBefore using HANACleaner read the disclaimer!\npython hanacleaner.py --disclaimer\n*********************************************", logman) 
+                ############ CHECK THAT USER CAN CONNECT TO HANA ###############  
+                sql = "SELECT * from DUMMY" 
+                errorlog = "USER ERROR: The user represented by the key "+dbuserkey+" cannot connect to the system. Make sure this user is properly saved in hdbuserstore."
+                [dummy_out, succeeded] = try_execute_sql(sql, errorlog, sqlman, logman)
+                dummy_out = dummy_out.strip("\n").strip("|").strip(" ") 
+                if sqlman.execute and (dummy_out != 'X' or not succeeded):
+                    log("USER ERROR: The user represented by the key "+dbuserkey+" cannot connect to the system. Make sure this user is properly saved in hdbuserstore.", logman)
+                    os._exit(1)
+                ##### HANA VERSIOIN COMPATABILITY ######    
+                [version, revision, mrevision] = hana_version_revision_maintenancerevision(sqlman, logman)
+                if retainedTraceContentDays != "-1" and (version < 2 and revision < 120):
+                    log("VERSION ERROR: -tc is not supported for SAP HANA rev. < 120. (The UNTIL option is new with SPS12.)", logman)
+                    os._exit(1)            
+                ###### START ALL HOUSE KEEPING TASKS ########
+                if minRetainedBackups >= 0 or minRetainedDays >= 0:
+                    [nCleanedData, nCleanedLog] = clean_backup_catalog(minRetainedBackups, minRetainedDays, deleteBackups, outputCatalog, outputDeletedCatalog, sqlman, logman)
+                    log(str(nCleanedData)+" data backup entries and "+str(nCleanedLog)+" log backup entries were removed from the backup catalog", logman)
                 else:
-                    log(str(nTablesForcedCompression[0])+" column store tables were compression re-optimized", logman)
-            else:
-                log("    (Compression re-optimization was not done since at least one flag in each of the three compression flag groups was negative (or not specified))", logman)
-            if createVTStat:
-                [nVTs, nVTsOptimized] = create_vt_statistics(vtSchemas, sqlman, logman)
-                log("Optimization statistics was created for "+str(nVTsOptimized)+" virtual tables (in total there are "+str(nVTs)+" virtual tables)", logman)
-            else:
-                log("    (Creation of optimization statistics for virtual tables was not done since -vs was false (or not specified))", logman)
-            if minRetainedIniDays >= 0:
-                nCleaned = clean_ini(minRetainedIniDays, version, revision, mrevision, sqlman, logman)
-                log(str(nCleaned)+" inifile history contents were removed", logman)
-            if minRetainedOutputDays >= 0:
-                nCleaned = clean_output(minRetainedOutputDays, sqlman, logman)
-                log(str(nCleaned)+" hanacleaner daily log files were removed", logman)
-            else:
-                log("    (Cleaning of the hanacleaner logs was not done since -or was negative (or not specified))", logman)
+                    log("    (Cleaning of the backup catalog was not done since -be and -bd were both negative (or not specified))", logman)
+                if retainedTraceContentDays != "-1" or retainedTraceFilesDays != "-1":
+                    nCleaned = clean_trace_files(retainedTraceContentDays, retainedTraceFilesDays, outputTraces, outputRemovedTraces, SID, local_dbinstance, hosts(sqlman), sqlman, logman)
+                    log(str(nCleaned)+" trace files were removed", logman)
+                else:
+                    log("    (Cleaning traces was not done since -tc and -tf were both -1 (or not specified))", logman)
+                if retainedDumpDays != "-1":
+                    nCleaned = clean_dumps(retainedDumpDays, sqlman, logman)
+                    log(str(nCleaned)+" fullsysteminfodump zip files (that can contain both fullsystem dumps and runtime dumps) were removed", logman)
+                else:
+                    log("    (Cleaning dumps was not done since -dr was -1 (or not specified))", logman)
+                if retainedAnyFileDays != "-1":
+                    nCleaned = clean_anyfile(retainedAnyFileDays, anyFilePaths, anyFileWords, sqlman, logman)
+                    log(str(nCleaned)+" general files were removed", logman)
+                else:
+                    log("    (Cleaning of general files was not done since -gr was -1 (or not specified))", logman)
+                if zipBackupLogsSizeLimit >= 0:
+                    nZipped = zipBackupLogs(zipBackupLogsSizeLimit, zipBackupPath, zipLinks, zipOut, sqlman, logman)
+                    log(str(nZipped)+" backup logs were compressed", logman)
+                else:
+                    log("    (Compression of the backup logs was not done since -zb was negative (or not specified))", logman)
+                if minRetainedAlertDays >= 0:
+                    nCleaned = clean_alerts(minRetainedAlertDays, outputAlerts, outputDeletedAlerts, sqlman, logman)
+                    log(str(nCleaned)+" alerts were removed", logman)
+                else:
+                    log("    (Cleaning of the alerts was not done since -ar was negative (or not specified))", logman)
+                if minRetainedObjLockDays >= 0:
+                    nCleaned = clean_objlock(minRetainedObjLockDays, sqlman, logman)
+                    log(str(nCleaned)+" object locks entries with unknown object names were removed", logman)
+                else:
+                    log("    (Cleaning of unknown object locks entries was not done since -kr was negative (or not specified))", logman)
+                if objHistMaxSize >= 0:
+                    memoryCleaned = clean_objhist(objHistMaxSize, outputObjHist, sqlman, logman)
+                    log(str(memoryCleaned)+" mb were cleaned from object history", logman)
+                else:
+                    log("    (Cleaning of the object history was not done since -om was negative (or not specified))", logman)
+                if maxFreeLogsegments >= 0:
+                    nReclaimed = reclaim_logsegments(maxFreeLogsegments, sqlman, logman)
+                    log(str(nReclaimed)+" log segments were reclaimed", logman)
+                else:
+                    log("    (Reclaim of free logsements was not done since -lr was negative (or not specified))", logman)
+                if minRetainedDaysForHandledEvents >= 0 or minRetainedDaysForEvents >= 0:
+                    nEventsCleaned = clean_events(minRetainedDaysForHandledEvents, minRetainedDaysForEvents, sqlman, logman)
+                    log(str(nEventsCleaned[1])+" events were cleaned, "+str(nEventsCleaned[0])+" of those were handled. There are "+str(nEventsCleaned[2])+" events left, "+str(nEventsCleaned[3])+" of those are handled.", logman)
+                else:
+                    log("    (Cleaning of events was not done since -eh and -eu were negative (or not specified))", logman)
+                if retainedAuditLogDays != "-1":
+                    nCleaned = clean_audit_logs(retainedAuditLogDays, sqlman, logman)
+                    log(str(nCleaned)+" entries in the audit log table were removed", logman)
+                else:
+                    log("    (Cleaning audit logs was not done since -ur was -1 (or not specified))", logman)                
+                if fragmentationLimit >= 0:
+                    defragmentedPerPort = defragment(fragmentationLimit, outputFragmentation, sqlman, logman)
+                    if defragmentedPerPort:
+                        for port in defragmentedPerPort:
+                            if port[2] > 0:
+                                log("For Host "+str(port[0])+" and Port "+str(port[1])+" defragmentation changed by "+str(port[2])+" %", logman)
+                            else:
+                                log("Defragmentation was tried for Host "+str(port[0])+" and Port "+str(port[1])+" but it changed by "+str(port[2])+" %", logman)
+                    else:
+                        log("Defragmentation was not done since there was not enough fragmentation for any service", logman)
+                else:
+                    log("    (Defragmentation was not done since -fl was negative (or not specified))", logman)
+                if rcContainers:
+                    nReclaimedContainers = reclaim_rs_containers(outputRcContainers, sqlman, logman)
+                    log(nReclaimedContainers[1]+" row store containers were reclaimed from "+nReclaimedContainers[0]+" row store tables", logman)
+                else:
+                    log("    (Reclaim of row store containers was not done since -rc was negative (or not specified))", logman)
+                if all(c > -1 for c in [maxRawComp, maxEstComp]) or all(c > -1 for c in [maxRowComp, maxMemComp, minDistComp]) or all(c > -1 for c in [maxQuotaComp, maxUDIVComp]) or maxBLOCKComp > -1:
+                    nTablesForcedCompression = force_compression(maxRawComp, maxEstComp, maxRowComp, maxMemComp, minDistComp, maxQuotaComp, maxUDIVComp, maxBLOCKComp, partComp, mergeBeforeComp, version, revision, mrevision, outComp, sqlman, logman)
+                    if nTablesForcedCompression[1]:
+                        log("Tried re-optimize compression on "+str(nTablesForcedCompression[0])+" tables and failed on "+str(nTablesForcedCompression[1])+" (probably due to insufficient privileges)", logman)
+                    else:
+                        log(str(nTablesForcedCompression[0])+" column store tables were compression re-optimized", logman)
+                else:
+                    log("    (Compression re-optimization was not done since at least one flag in each of the three compression flag groups was negative (or not specified))", logman)
+                if createVTStat:
+                    [nVTs, nVTsOptimized] = create_vt_statistics(vtSchemas, sqlman, logman)
+                    log("Optimization statistics was created for "+str(nVTsOptimized)+" virtual tables (in total there are "+str(nVTs)+" virtual tables)", logman)
+                else:
+                    log("    (Creation of optimization statistics for virtual tables was not done since -vs was false (or not specified))", logman)
+                if minRetainedIniDays >= 0:
+                    nCleaned = clean_ini(minRetainedIniDays, version, revision, mrevision, sqlman, logman)
+                    log(str(nCleaned)+" inifile history contents were removed", logman)
+                if minRetainedOutputDays >= 0:
+                    nCleaned = clean_output(minRetainedOutputDays, sqlman, logman)
+                    log(str(nCleaned)+" hanacleaner daily log files were removed", logman)
+                else:
+                    log("    (Cleaning of the hanacleaner logs was not done since -or was negative (or not specified))", logman)
         # HANACLEANER INTERVALL
         if hanacleaner_interval < 0: 
             sys.exit()
