@@ -413,7 +413,7 @@ def clean_trace_files(retainedTraceContentDays, retainedTraceFilesDays, outputTr
         filesToBeRemoved = subprocess.check_output(sqlman.hdbsql_jAQaxU + " \"" + sql + "\"", shell=True).splitlines(1)
         filesToBeRemoved = [file.strip('\n').strip(' ') for file in filesToBeRemoved if file != '\n'] 
         # Ignore files with names that breaks the ALTER command, or kill.sap according to SAP Note 2349144, and backup.log and backint.log since they are taken care of by -zb, see SAP Note 2431472 about hdbdaemon, we do not want to delete any .sem or .status file, and we do not want to delete any links, e.g. .sap<SID>_HDB<inst>
-        filesToBeRemoved = [file for file in filesToBeRemoved if not (" " in file or "," in file or "'" in file or "kill.sap" in file or "backup.log" in file or "backint.log" in file or "hdbdaemon.status" in file or "sapstart.sem" in file or ".sap"+SID+"_HDB"+local_dbinstance in file)]
+        filesToBeRemoved = [file for file in filesToBeRemoved if not (" " in file or "," in file or "'" in file or "kill.sap" in file or "backup.log" in file or "backint.log" in file or "hdbdaemon.status" in file or "sapstart.sem" in file or "sapstart.log" in file or ".sap"+SID+"_HDB"+local_dbinstance in file)]
         # Make sure we only delete files with known extensions (we dont delete .sem or .status files). Added two files without extensions that we want to delete
         filesToBeRemoved = [file for file in filesToBeRemoved if any(x in file for x in [".trc", ".log", ".stat", ".py", ".tpt", ".gz", ".old", ".xml", ".txt", ".docs", ".cfg", ".cockpit", ".xs", "dev_icm_sec", "wdisp_icm_log"])] 
         if filesToBeRemoved:  # otherwise no file to remove
