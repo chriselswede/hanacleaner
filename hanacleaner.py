@@ -132,6 +132,7 @@ def printHelp():
     print("         ---- OUTPUT  ----                                                                                                         ")
     print(" -os     output sql [true/false], prints all crucial housekeeping tasks (useful for debugging with -es=false), default: false      ")
     print(" -op     output path, full literal path of the folder for the output logs (will be created if not there), default = '' (not used)  ")
+    print("         Note: if you include %SID in the output path, it will automatically be replaced with the actually SID of your system      ")
     print(" -or     output retention days, logs in the path specified with -op are only saved for this number of days, default: -1 (not used) ")
     print(" -so     standard out switch [true/false], switch to write to standard out, default:  true                                         ")
     print("         ---- SERVER FULL CHECK ----                                                                                               ")
@@ -183,6 +184,7 @@ def printHelp():
     print(" 2. Allow granular control on minutes instead of days                                                                              ")
     print(" 3. Allow compression on trace files as well not only on backup related files                                                      ")
     print(" 4. Allow a two steps cleanup for general files, e.g. compress file older than a few hours and delete files older than some days   ")
+    print(" 5. Check for multiple definitions of one flag, give ERROR, and STOP                                                               ")
     print("                                                                                                                                   ")
     print("AUTHOR: Christian Hansen                                                                                                           ")
     print("                                                                                                                                   ")
@@ -1469,6 +1471,7 @@ def main():
     ############ GET LOCAL HOST and SID ##########
     local_host = subprocess.check_output("hostname", shell=True).replace('\n','') if virtual_local_host == "" else virtual_local_host
     SID = subprocess.check_output('whoami', shell=True).replace('\n','').replace('adm','').upper()    
+    log_path = log_path.replace('%SID', SID)                
     
     ################ START #################
     while True: # hanacleaner intervall loop
