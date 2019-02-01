@@ -545,7 +545,7 @@ def max_filesystem_usage_in_percent(file_system, ignore_filesystems, logman):
     maxPercentage = 0
     lines = None 
     try:
-        lines = subprocess.check_output("df -h -x fuse.gvfs-fuse-daemon "+file_system, shell=True).splitlines(1)   #telling df to ignore /root/.gvfs since normally <sid>adm lacking permissions        
+        lines = subprocess.check_output("df -h -P -x fuse.gvfs-fuse-daemon "+file_system, shell=True).splitlines(1)   # -x: telling df to ignore /root/.gvfs since normally <sid>adm lacking permissions, -P: Force output in one line for RedHat        
     except:
         log("WARNING: Something went wrong executing df -h, \n therefore the most used memory in your file systems will not be checked. \n As a workaround it is possible to use the -fs flag to only take into account the most relevant file system.", logman)
     if lines:
