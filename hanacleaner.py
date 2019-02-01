@@ -1243,9 +1243,14 @@ def main():
     if '-dbs' in sys.argv:
         dbases = [x for x in sys.argv[  sys.argv.index('-dbs') + 1   ].split(',')]
 
+    ############ GET LOCAL HOST and SID ##########
+    local_host = subprocess.check_output("hostname", shell=True).replace('\n','') if virtual_local_host == "" else virtual_local_host
+    SID = subprocess.check_output('whoami', shell=True).replace('\n','').replace('adm','').upper()    
+
     ############# STD OUT, LOG DIRECTORY and LOG MANAGER #########
     std_out = checkAndConvertBooleanFlag(std_out, "-so", LogManager("", True))
     log_path = out_path.replace(" ","_").replace(".","_")
+    log_path = log_path.replace('%SID', SID)     
     if log_path and not os.path.exists(log_path):
         os.makedirs(log_path)
     logman = LogManager(log_path, std_out)
@@ -1466,12 +1471,7 @@ def main():
     ### dbases, -dbs, and dbuserkeys, -k
     if len(dbases) > 1 and len(dbuserkeys) > 1:
         log("INPUT ERROR: -k may only specify one key if -dbs is used. Please see --help for more information.", logman)
-        os._exit(1)
-    
-    ############ GET LOCAL HOST and SID ##########
-    local_host = subprocess.check_output("hostname", shell=True).replace('\n','') if virtual_local_host == "" else virtual_local_host
-    SID = subprocess.check_output('whoami', shell=True).replace('\n','').replace('adm','').upper()    
-    log_path = log_path.replace('%SID', SID)                
+        os._exit(1)               
     
     ################ START #################
     while True: # hanacleaner intervall loop
