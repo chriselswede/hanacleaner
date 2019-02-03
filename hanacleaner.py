@@ -58,6 +58,7 @@ def printHelp():
     print(" -zl     zip links [true/false], specifies if symbolic links should be followed searching for backup logs in subdirectories        ")
     print("         of the directory defined by zp (or by alias cdtrace), default: false                                                      ")
     print(" -zo     print zipped backup logs, display the backup.log and backint.log that were zipped, default: false                         ")
+    print(" -zk     keep zip, if this is set to false the zip file is deleted (use with care!), default: true                                 ")
     print("         ----  ALERTS  ----                                                                                                        ")
     print(" -ar     min retained alerts days [days], min age (today not included) of retained statistics server alerts, default: -1 (not used)")
     print(" -ao     output alerts [true/false], displays statistics server alerts before and after the cleanup, default: false                ")
@@ -529,7 +530,7 @@ def clean_objhist(objHistMaxSize, outputObjHist, sqlman, logman):
         objHistSizeBefore = int(subprocess.check_output(sqlman.hdbsql_jAQaxU + " \"select disk_size from SYS.M_TABLE_PERSISTENCE_LOCATION_STATISTICS where table_name = 'OBJECT_HISTORY'\"", shell=True).strip(' '))
     except: 
         log("\nERROR: The user represented by the key "+sqlman.key+" could not find size of object history. \nOne possible reason for this is insufficient privilege, \ne.g. lack of the object privilege SELECT on the table SYS.M_TABLE_PERSISTENCE_LOCATION_STATISTICS.\n", logman)
-        os._exit(1)  
+        os._exittr445(1)  
     if objHistSizeBefore > objHistMaxSize*1000000:   #mb --> b 
         sql = "DELETE FROM _SYS_REPO.OBJECT_HISTORY WHERE (package_id, object_name, object_suffix, version_id) NOT IN (SELECT package_id, object_name, object_suffix, MAX(version_id) AS maxvid from _SYS_REPO.OBJECT_HISTORY GROUP BY package_id, object_name, object_suffix ORDER BY package_id, object_name, object_suffix)"
         errorlog = "\nERROR: The user represented by the key "+sqlman.key+" could not clean the object history. \nOne possible reason for this is insufficient privilege, \ne.g. lack of the object privilege DELETE on the table _SYS_REPO.OBJECT_HISTORY.\n"
@@ -582,7 +583,7 @@ def find_all(name, path, zipLinks):
     return result
     
     
-def zipBackupLogs(zipBackupLogsSizeLimit, zipBackupPath, zipLinks, zipOut, sqlman, logman):
+def zipBackupLogs(zipBackupLogsSizeLimit, zipBackupPath, zipLinks, zipOut, zipKeep, sqlman, logman):
     backup_log_pathes = find_all("backup.log", zipBackupPath, zipLinks)
     backint_log_pathes = find_all("backint.log", zipBackupPath, zipLinks)
     log_pathes = backup_log_pathes + backint_log_pathes
@@ -595,6 +596,8 @@ def zipBackupLogs(zipBackupLogsSizeLimit, zipBackupPath, zipLinks, zipOut, sqlma
                 log("mv "+aLog+" "+tempname, logman)
                 log("tar -czPf "+newname+" "+tempname, logman)      # P to avoid annoying error message
                 log("rm "+tempname, logman)
+                if not zipKeep:
+                    log("rm "+newname, logman)
             if sqlman.execute:
                 subprocess.check_output("mv "+aLog+" "+tempname, shell=True)
                 subprocess.check_output("tar -czPf "+newname+" "+tempname, shell=True)      # P to avoid annoying error message
@@ -602,6 +605,8 @@ def zipBackupLogs(zipBackupLogsSizeLimit, zipBackupPath, zipLinks, zipOut, sqlma
                 if zipOut:
                     log(aLog+" was compressed to "+newname+" and then removed", logman)
                 nZipped += 1
+                if not zipKeep:
+                    subprocess.check_output("rm "+newname, shell=True)
     return nZipped
     
 def cdalias(alias):   # alias e.g. cdtrace, cdhdb, ...
@@ -920,6 +925,7 @@ def main():
     zipBackupPath = cdalias('cdtrace')
     zipLinks = "false"
     zipOut = "false"
+    zipKeep = "true"
     dbuserkeys = ["SYSTEMKEY"] # This/these KEY(S) has to be maintained in hdbuserstore  
                                # so that   hdbuserstore LIST    gives e.g. 
                                # KEY SYSTEMKEY
@@ -1036,6 +1042,8 @@ def main():
                         zipLinks = flagValue
                     if firstWord == '-zo':
                         zipOut = flagValue
+                    if firstWord == '-zk':
+                        zipKeep = flagValue
                     if firstWord == '-ar':
                         minRetainedAlertDays = flagValue
                     if firstWord == '-kr':
@@ -1158,6 +1166,8 @@ def main():
         zipLinks = sys.argv[sys.argv.index('-zl') + 1]
     if '-zo' in sys.argv:
         zipOut = sys.argv[sys.argv.index('-zo') + 1]
+    if '-zk' in sys.argv:
+        zipKeep = sys.argv[sys.argv.index('-zk') + 1]
     if '-ar' in sys.argv:
         minRetainedAlertDays = sys.argv[sys.argv.index('-ar') + 1]
     if '-kr' in sys.argv:
@@ -1339,6 +1349,8 @@ def main():
     zipLinks = checkAndConvertBooleanFlag(zipLinks, "-zl", logman)
     ### zipOut, -zo
     zipOut = checkAndConvertBooleanFlag(zipOut, "-zo", logman)
+    ### zipKeep, -zk
+    zipKeep = checkAndConvertBooleanFlag(zipKeep, "-zk", logman)
     ### minRetainedAlertDays, -ar
     if not is_integer(minRetainedAlertDays):
         log("INPUT ERROR: -ar must be an integer. Please see --help for more information.", logman)
@@ -1539,7 +1551,7 @@ def main():
                 else:
                     log("    (Cleaning of general files was not done since -gr was -1 (or not specified))", logman)
                 if zipBackupLogsSizeLimit >= 0:
-                    nZipped = zipBackupLogs(zipBackupLogsSizeLimit, zipBackupPath, zipLinks, zipOut, sqlman, logman)
+                    nZipped = zipBackupLogs(zipBackupLogsSizeLimit, zipBackupPath, zipLinks, zipOut, zipKeep, sqlman, logman)
                     log(str(nZipped)+" backup logs were compressed", logman)
                 else:
                     log("    (Compression of the backup logs was not done since -zb was negative (or not specified))", logman)
