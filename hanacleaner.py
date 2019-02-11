@@ -53,6 +53,7 @@ def printHelp():
     print("         ----  BACKUP LOGS  ----                                                                                                   ")
     print(" -zb     backup logs compression size limit [mb], if there are any backup.log or backint.log file (see -zp below) that is bigger   ")
     print("         than this size limit, then it is compressed and renamed, default: -1 (not used)                                           ")
+    print("         Note: if -tf flag is used the resulting zip file could be removed by it.                                                  ")
     print(" -zp     zip path, specifies the path (and all subdirectories) where to look for the backup.log and backint.log files,             ")
     print("         default is the directory specified by the alias cdtrace                                                                   ")
     print(" -zl     zip links [true/false], specifies if symbolic links should be followed searching for backup logs in subdirectories        ")
@@ -418,7 +419,7 @@ def clean_trace_files(retainedTraceContentDays, retainedTraceFilesDays, outputTr
         # Ignore files with names that breaks the ALTER command, or kill.sap according to SAP Note 2349144, and backup.log and backint.log since they are taken care of by -zb, see SAP Note 2431472 about hdbdaemon, we do not want to delete any .sem or .status file, and we do not want to delete any links, e.g. .sap<SID>_HDB<inst>
         filesToBeRemoved = [file for file in filesToBeRemoved if not (" " in file or "," in file or "'" in file or "kill.sap" in file or "backup.log" in file or "backint.log" in file or "hdbdaemon.status" in file or "sapstart.sem" in file or "sapstart.log" in file or ".sap"+SID+"_HDB"+local_dbinstance in file)]
         # Make sure we only delete files with known extensions (we dont delete .sem or .status files). Added two files without extensions that we want to delete
-        filesToBeRemoved = [file for file in filesToBeRemoved if any(x in file for x in [".trc", ".log", ".stat", ".py", ".tpt", ".gz", ".old", ".xml", ".txt", ".docs", ".cfg", ".cockpit", ".xs", "dev_icm_sec", "wdisp_icm_log"])] 
+        filesToBeRemoved = [file for file in filesToBeRemoved if any(x in file for x in [".trc", ".log", ".stat", ".py", ".tpt", ".gz", ".zip", ".old", ".xml", ".txt", ".docs", ".cfg", ".cockpit", ".xs", "dev_icm_sec", "wdisp_icm_log"])] 
         if filesToBeRemoved:  # otherwise no file to remove
             filesToBeRemoved = [filesToBeRemoved[i:i + 100] for i in xrange(0, len(filesToBeRemoved), 100)]  #make sure we do not send too long statement, it could cause an error
             for files in filesToBeRemoved:
