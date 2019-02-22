@@ -158,6 +158,12 @@ def printHelp():
     print(" -dbs    DB key, this can be a list of databases accessed from the system defined by -k (-k can only be one key if -dbs is used)   ")               
     print("         Note: Users with same name and password have to be maintained in all databases   , default: ''  (not used)                ")
     print("         Example:  -k PQLSYSDB -dbs SYSTEMDB, PQL                                                                                  ")
+    print("         ---- EMAIL ----                                                                                                           ")
+    print(" -en     email notification, <recievers email>,<sender's email>,<mail server>                                                      ") 
+    print("                             example: -en you@ourcompany,me@ourcompany.com,smtp.intra.ourcompany.com                               ")
+    print('         NOTE: For this to work you have to install the linux program "sendmail" and add a line similar to                         ')
+    print("         DSsmtp.intra.ourcompany.com in the file sendmail.cf in /etc/mail/, see                                                    ")
+    print("         https://www.systutorials.com/5167/sending-email-using-mailx-in-linux-through-internal-smtp/                               ")
     print("                                                                                                                                   ")    
     print("                                                                                                                                   ")    
     print("EXAMPLE (trace files, statistics server alerts and backup catalog entries, i.e. not the backups themselves, older than 42 days     ")
@@ -187,6 +193,7 @@ def printHelp():
     print(" 3. Allow compression on trace files as well not only on backup related files                                                      ")
     print(" 4. Allow a two steps cleanup for general files, e.g. compress file older than a few hours and delete files older than some days   ")
     print(" 5. Check for multiple definitions of one flag, give ERROR, and STOP                                                               ")
+    print(" 6. Send emails (like checker) when cleanup was done.                                                                              ")
     print("                                                                                                                                   ")
     print("AUTHOR: Christian Hansen                                                                                                           ")
     print("                                                                                                                                   ")
@@ -240,6 +247,14 @@ class LogManager:
     def __init__(self, log_path, print_to_std):
         self.path = log_path
         self.print_to_std = print_to_std
+        
+class EmailSender:
+    def __init__(self, recieverEmail, senderEmail, mailServer):
+        self.recieverEmail = recieverEmail
+        self.senderEmail = senderEmail
+        self.mailServer = mailServer
+    def printEmailSender(self):
+        print "Reciever Email: ", self.recieverEmail, "  Sender Email: ", self.senderEmail, "  Mail Server: ", self.mailServer 
 
 ######################## FUNCTION DEFINITIONS ################################
 
@@ -275,6 +290,12 @@ def try_execute_sql(sql, errorlog, sqlman, logman, exit_on_fail = True):
         if exit_on_fail:
             os._exit(1)
     return [out, succeeded]
+
+def is_email(s):
+    s = s.split('@')
+    if not len(s) == 2:
+        return False
+    return '.' in s[1]
 
 def hana_version_revision_maintenancerevision(sqlman, logman):
     command_run = subprocess.check_output(sqlman.hdbsql_jAU + " \"select value from sys.m_system_overview where name = 'Version'\"", shell=True)
@@ -933,6 +954,7 @@ def main():
                                #     ENV : mo-fc8d991e0:30015
                                #     USER: SYSTEM
     dbases = ['']
+    email_notif = []
     retainedTraceContentDays = "-1"
     retainedTraceFilesDays = "-1"
     retainedDumpDays = "-1"
@@ -1127,6 +1149,8 @@ def main():
                         dbuserkeys = [x for x in flagValue.split(',')]
                     if firstWord == '-dbs':
                         dbases = [x for x in flagValue.split(',')]
+                    if firstWord == '-en': 
+                        email_notif = [x for x in flagValue.split(',')]
 
     #####################   INPUT ARGUMENTS (these would overwrite whats in the configuration file)   ####################     
     if '-h' in sys.argv or '--help' in sys.argv:
@@ -1253,6 +1277,8 @@ def main():
         dbuserkeys = [x for x in sys.argv[  sys.argv.index('-k') + 1   ].split(',')]
     if '-dbs' in sys.argv:
         dbases = [x for x in sys.argv[  sys.argv.index('-dbs') + 1   ].split(',')]
+    if '-en' in sys.argv:
+        email_notif = [x for x in sys.argv[  sys.argv.index('-en') + 1   ].split(',')]
 
     ############ GET LOCAL HOST and SID ##########
     local_host = subprocess.check_output("hostname", shell=True).replace('\n','') if virtual_local_host == "" else virtual_local_host
@@ -1485,6 +1511,17 @@ def main():
     if len(dbases) > 1 and len(dbuserkeys) > 1:
         log("INPUT ERROR: -k may only specify one key if -dbs is used. Please see --help for more information.", logman)
         os._exit(1)               
+    ### email_notif, -en
+    if email_notif:  # allow to be empty
+        if not len(email_notif) == 3:
+            print "INPUT ERROR: -en requires 3 elements, seperated by a comma. Please see --help for more information."
+            os._exit(1)
+        if not is_email(email_notif[0]) or not is_email(email_notif[1]) :
+            print "INPUT ERROR: first and second element of -en has to be valid emails. Please see --help for more information."
+            os._exit(1) 
+    emailSender = None
+    if email_notif:
+        emailSender = EmailSender(email_notif[0], email_notif[1], email_notif[2])
     
     ################ START #################
     while True: # hanacleaner intervall loop
@@ -1508,15 +1545,18 @@ def main():
             local_dbinstance = dbinstances[local_host_index]
             ############# MULTIPLE DATABASES #######
             for dbase in dbases:
+                emailmessage = ""
                 ############# SQL MANAGER ##############
                 sqlman = SQLManager(execute_sql, hdbsql_string, dbuserkey, dbase, out_sql)
                 db_string = ''
                 if dbase:
                     db_string = 'on DB '+dbase
                 if sqlman.execute:
-                    log("***********************************************************\n"+datetime.now().strftime("%Y-%m-%d %H:%M:%S")+"\nhanacleaner by "+dbuserkey+" on "+SID+"("+local_dbinstance+") "+db_string+" with \n"+" ".join(sys.argv)+"\nCleanup Statements will be executed (-es is default true)\nBefore using HANACleaner read the disclaimer!\npython hanacleaner.py --disclaimer\n***********************************************************", logman) 
+                    startstring = "***********************************************************\n"+datetime.now().strftime("%Y-%m-%d %H:%M:%S")+"\nhanacleaner by "+dbuserkey+" on "+SID+"("+local_dbinstance+") "+db_string+" with \n"+" ".join(sys.argv)+"\nCleanup Statements will be executed (-es is default true)\nBefore using HANACleaner read the disclaimer!\npython hanacleaner.py --disclaimer\n***********************************************************" 
                 else:
-                    log("*********************************************\n"+datetime.now().strftime("%Y-%m-%d %H:%M:%S")+"\nhanacleaner by "+dbuserkey+"\non "+SID+"("+local_dbinstance+") "+db_string+" with \n"+" ".join(sys.argv)+"\nCleanup Statements will NOT be executed\nBefore using HANACleaner read the disclaimer!\npython hanacleaner.py --disclaimer\n*********************************************", logman) 
+                    startstring = "*********************************************\n"+datetime.now().strftime("%Y-%m-%d %H:%M:%S")+"\nhanacleaner by "+dbuserkey+"\non "+SID+"("+local_dbinstance+") "+db_string+" with \n"+" ".join(sys.argv)+"\nCleanup Statements will NOT be executed\nBefore using HANACleaner read the disclaimer!\npython hanacleaner.py --disclaimer\n*********************************************"
+                log(startstring, logman)
+                emailmessage += startstring+"\n"
                 ############ CHECK THAT USER CAN CONNECT TO HANA ###############  
                 sql = "SELECT * from DUMMY" 
                 errorlog = "USER ERROR: The user represented by the key "+dbuserkey+" cannot connect to the system. Make sure this user is properly saved in hdbuserstore."
@@ -1533,57 +1573,79 @@ def main():
                 ###### START ALL HOUSE KEEPING TASKS ########
                 if minRetainedBackups >= 0 or minRetainedDays >= 0:
                     [nCleanedData, nCleanedLog] = clean_backup_catalog(minRetainedBackups, minRetainedDays, deleteBackups, outputCatalog, outputDeletedCatalog, sqlman, logman)
-                    log(str(nCleanedData)+" data backup entries and "+str(nCleanedLog)+" log backup entries were removed from the backup catalog", logman)
+                    logmessage = str(nCleanedData)+" data backup entries and "+str(nCleanedLog)+" log backup entries were removed from the backup catalog"
+                    log(logmessage, logman)
+                    emailmessage += logmessage+"\n"
                 else:
                     log("    (Cleaning of the backup catalog was not done since -be and -bd were both negative (or not specified))", logman)
                 if retainedTraceContentDays != "-1" or retainedTraceFilesDays != "-1":
                     nCleaned = clean_trace_files(retainedTraceContentDays, retainedTraceFilesDays, outputTraces, outputRemovedTraces, SID, local_dbinstance, hosts(sqlman), sqlman, logman)
-                    log(str(nCleaned)+" trace files were removed", logman)
+                    logmessage = str(nCleaned)+" trace files were removed"
+                    log(logmessage, logman)
+                    emailmessage += logmessage+"\n"
                 else:
                     log("    (Cleaning traces was not done since -tc and -tf were both -1 (or not specified))", logman)
                 if retainedDumpDays != "-1":
                     nCleaned = clean_dumps(retainedDumpDays, sqlman, logman)
-                    log(str(nCleaned)+" fullsysteminfodump zip files (that can contain both fullsystem dumps and runtime dumps) were removed", logman)
+                    logmessage = str(nCleaned)+" fullsysteminfodump zip files (that can contain both fullsystem dumps and runtime dumps) were removed"
+                    log(logmessage, logman)
+                    emailmessage += logmessage+"\n"
                 else:
                     log("    (Cleaning dumps was not done since -dr was -1 (or not specified))", logman)
                 if retainedAnyFileDays != "-1":
                     nCleaned = clean_anyfile(retainedAnyFileDays, anyFilePaths, anyFileWords, sqlman, logman)
-                    log(str(nCleaned)+" general files were removed", logman)
+                    logmessage = str(nCleaned)+" general files were removed"
+                    log(logmessage, logman)
+                    emailmessage += logmessage+"\n"
                 else:
                     log("    (Cleaning of general files was not done since -gr was -1 (or not specified))", logman)
                 if zipBackupLogsSizeLimit >= 0:
                     nZipped = zipBackupLogs(zipBackupLogsSizeLimit, zipBackupPath, zipLinks, zipOut, zipKeep, sqlman, logman)
-                    log(str(nZipped)+" backup logs were compressed", logman)
+                    logmessage = str(nZipped)+" backup logs were compressed"
+                    log(logmessage, logman)
+                    emailmessage += logmessage+"\n"
                 else:
                     log("    (Compression of the backup logs was not done since -zb was negative (or not specified))", logman)
                 if minRetainedAlertDays >= 0:
                     nCleaned = clean_alerts(minRetainedAlertDays, outputAlerts, outputDeletedAlerts, sqlman, logman)
-                    log(str(nCleaned)+" alerts were removed", logman)
+                    logmessage = str(nCleaned)+" alerts were removed"
+                    log(logmessage, logman)
+                    emailmessage += logmessage+"\n"
                 else:
                     log("    (Cleaning of the alerts was not done since -ar was negative (or not specified))", logman)
                 if minRetainedObjLockDays >= 0:
                     nCleaned = clean_objlock(minRetainedObjLockDays, sqlman, logman)
-                    log(str(nCleaned)+" object locks entries with unknown object names were removed", logman)
+                    logmessage = str(nCleaned)+" object locks entries with unknown object names were removed"
+                    log(logmessage, logman)
+                    emailmessage += logmessage+"\n"
                 else:
                     log("    (Cleaning of unknown object locks entries was not done since -kr was negative (or not specified))", logman)
                 if objHistMaxSize >= 0:
                     memoryCleaned = clean_objhist(objHistMaxSize, outputObjHist, sqlman, logman)
-                    log(str(memoryCleaned)+" mb were cleaned from object history", logman)
+                    logmessage = str(memoryCleaned)+" mb were cleaned from object history"
+                    log(logmessage, logman)
+                    emailmessage += logmessage+"\n"
                 else:
                     log("    (Cleaning of the object history was not done since -om was negative (or not specified))", logman)
                 if maxFreeLogsegments >= 0:
                     nReclaimed = reclaim_logsegments(maxFreeLogsegments, sqlman, logman)
-                    log(str(nReclaimed)+" log segments were reclaimed", logman)
+                    logmessage = str(nReclaimed)+" log segments were reclaimed"
+                    log(logmessage, logman)
+                    emailmessage += logmessage+"\n"
                 else:
                     log("    (Reclaim of free logsements was not done since -lr was negative (or not specified))", logman)
                 if minRetainedDaysForHandledEvents >= 0 or minRetainedDaysForEvents >= 0:
                     nEventsCleaned = clean_events(minRetainedDaysForHandledEvents, minRetainedDaysForEvents, sqlman, logman)
-                    log(str(nEventsCleaned[1])+" events were cleaned, "+str(nEventsCleaned[0])+" of those were handled. There are "+str(nEventsCleaned[2])+" events left, "+str(nEventsCleaned[3])+" of those are handled.", logman)
+                    logmessage = str(nEventsCleaned[1])+" events were cleaned, "+str(nEventsCleaned[0])+" of those were handled. There are "+str(nEventsCleaned[2])+" events left, "+str(nEventsCleaned[3])+" of those are handled." 
+                    log(logmessage, logman)
+                    emailmessage += logmessage+"\n"
                 else:
                     log("    (Cleaning of events was not done since -eh and -eu were negative (or not specified))", logman)
                 if retainedAuditLogDays != "-1":
                     nCleaned = clean_audit_logs(retainedAuditLogDays, sqlman, logman)
-                    log(str(nCleaned)+" entries in the audit log table were removed", logman)
+                    logmessage = str(nCleaned)+" entries in the audit log table were removed"
+                    log(logmessage, logman)
+                    emailmessage += logmessage+"\n"
                 else:
                     log("    (Cleaning audit logs was not done since -ur was -1 (or not specified))", logman)                
                 if fragmentationLimit >= 0:
@@ -1591,7 +1653,9 @@ def main():
                     if defragmentedPerPort:
                         for port in defragmentedPerPort:
                             if port[2] > 0:
-                                log("For Host "+str(port[0])+" and Port "+str(port[1])+" defragmentation changed by "+str(port[2])+" %", logman)
+                                logmessage = "For Host "+str(port[0])+" and Port "+str(port[1])+" defragmentation changed by "+str(port[2])+" %"
+                                log(logmessage, logman)
+                                emailmessage += logmessage+"\n"
                             else:
                                 log("Defragmentation was tried for Host "+str(port[0])+" and Port "+str(port[1])+" but it changed by "+str(port[2])+" %", logman)
                     else:
@@ -1600,7 +1664,9 @@ def main():
                     log("    (Defragmentation was not done since -fl was negative (or not specified))", logman)
                 if rcContainers:
                     nReclaimedContainers = reclaim_rs_containers(outputRcContainers, sqlman, logman)
-                    log(nReclaimedContainers[1]+" row store containers were reclaimed from "+nReclaimedContainers[0]+" row store tables", logman)
+                    logmessage = nReclaimedContainers[1]+" row store containers were reclaimed from "+nReclaimedContainers[0]+" row store tables"
+                    log(logmessage, logman)
+                    emailmessage += logmessage+"\n"
                 else:
                     log("    (Reclaim of row store containers was not done since -rc was negative (or not specified))", logman)
                 if all(c > -1 for c in [maxRawComp, maxEstComp]) or all(c > -1 for c in [maxRowComp, maxMemComp, minDistComp]) or all(c > -1 for c in [maxQuotaComp, maxUDIVComp]) or maxBLOCKComp > -1:
@@ -1608,22 +1674,36 @@ def main():
                     if nTablesForcedCompression[1]:
                         log("Tried re-optimize compression on "+str(nTablesForcedCompression[0])+" tables and failed on "+str(nTablesForcedCompression[1])+" (probably due to insufficient privileges)", logman)
                     else:
-                        log(str(nTablesForcedCompression[0])+" column store tables were compression re-optimized", logman)
+                        logmessage = str(nTablesForcedCompression[0])+" column store tables were compression re-optimized"
+                        log(logmessage, logman)
+                        emailmessage += logmessage+"\n"
                 else:
                     log("    (Compression re-optimization was not done since at least one flag in each of the three compression flag groups was negative (or not specified))", logman)
                 if createVTStat:
                     [nVTs, nVTsOptimized] = create_vt_statistics(vtSchemas, sqlman, logman)
-                    log("Optimization statistics was created for "+str(nVTsOptimized)+" virtual tables (in total there are "+str(nVTs)+" virtual tables)", logman)
+                    logmessage = "Optimization statistics was created for "+str(nVTsOptimized)+" virtual tables (in total there are "+str(nVTs)+" virtual tables)" 
+                    log(logmessage, logman)
+                    emailmessage += logmessage+"\n"
                 else:
                     log("    (Creation of optimization statistics for virtual tables was not done since -vs was false (or not specified))", logman)
                 if minRetainedIniDays >= 0:
                     nCleaned = clean_ini(minRetainedIniDays, version, revision, mrevision, sqlman, logman)
-                    log(str(nCleaned)+" inifile history contents were removed", logman)
+                    logmessage = str(nCleaned)+" inifile history contents were removed" 
+                    log(logmessage, logman)
+                    emailmessage += logmessage+"\n"
                 if minRetainedOutputDays >= 0:
                     nCleaned = clean_output(minRetainedOutputDays, sqlman, logman)
-                    log(str(nCleaned)+" hanacleaner daily log files were removed", logman)
+                    logmessage = str(nCleaned)+" hanacleaner daily log files were removed"
+                    log(logmessage, logman)
+                    emailmessage += logmessage+"\n"
                 else:
-                    log("    (Cleaning of the hanacleaner logs was not done since -or was negative (or not specified))", logman)
+                    log("    (Cleaning of the hanacleaner logs was not done since -or was negative (or not specified))", logman)      
+                # SEND EMAIL   (https://www.systutorials.com/5167/sending-email-using-mailx-in-linux-through-internal-smtp/):
+                if emailSender:
+                    mailstring = 'echo "'+emailmessage+'" | mailx -s "HANACleaner execution on '+SID+'('+local_dbinstance+') '+db_string+'" -S smtp=smtp://'+emailSender.mailServer+' -S from="'+emailSender.senderEmail+'" '+emailSender.recieverEmail
+                    #print mailstring
+                    subprocess.check_output(mailstring, shell=True)
+            
         # HANACLEANER INTERVALL
         if hanacleaner_interval < 0: 
             sys.exit()
