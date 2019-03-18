@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 from datetime import datetime, timedelta
-import sys, os, time, subprocess
+import sys, os, time, subprocess, re
 from difflib import Differ
 
 def printHelp():
@@ -193,7 +193,6 @@ def printHelp():
     print(" 3. Allow compression on trace files as well not only on backup related files                                                      ")
     print(" 4. Allow a two steps cleanup for general files, e.g. compress file older than a few hours and delete files older than some days   ")
     print(" 5. Check for multiple definitions of one flag, give ERROR, and STOP                                                               ")
-    print(" 6. Send emails (like checker) when cleanup was done.                                                                              ")
     print("                                                                                                                                   ")
     print("AUTHOR: Christian Hansen                                                                                                           ")
     print("                                                                                                                                   ")
@@ -631,14 +630,17 @@ def zipBackupLogs(zipBackupLogsSizeLimit, zipBackupPath, zipLinks, zipOut, zipKe
                     subprocess.check_output("rm "+newname, shell=True)
     return nZipped
     
-def cdalias(alias):   # alias e.g. cdtrace, cdhdb, ...
+def cdalias(alias):   # alias e.g. cdtrace, cdhdb, ...  Avoid possible ANSI escape codes for formatting of the linux terminal output (\x1b[A;B;Cm   \x1b[0m)
+    escapesequence = re.compile(r'\x1b[^m]*m')                                    #to remove ANSI escape codes (in case Linux formatting is used)
     command_run = subprocess.check_output(['/bin/bash', '-l', '-c', "alias "+alias])
-    pieces = command_run.strip("\n").strip("alias "+alias+"=").strip("'").strip("cd ").split("/")
+    #pieces = command_run.strip("\n").strip("alias "+alias+"=").strip("'").strip("cd ").split("/")
+    pieces = re.sub(r'.*cd ','',command_run).strip("\n").strip("'").split("/")    #to remove ANSI escape codes (in case Linux formatting is used)
     path = ''
     for piece in pieces:
         if piece and piece[0] == '$':
             piece = (subprocess.check_output(['/bin/bash', '-l', '-c', "echo "+piece])).strip("\n")
-        path = path + '/' + piece + '/' 
+        #path = path + '/' + piece + '/' 
+        path = escapesequence.sub('', ( path + piece + '/'))                      #to remove ANSI escape codes (in case Linux formatting is used)
     return path  
     
 def reclaim_logsegments(maxFreeLogsegments, sqlman, logman):
