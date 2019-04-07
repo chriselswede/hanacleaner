@@ -524,7 +524,8 @@ def clean_ini(minRetainedIniDays, version, revision, mrevision, sqlman, logman):
     except: 
         log("\nERROR: The user represented by the key "+sqlman.key+" could not find amount of inifile history. \nOne possible reason for this is insufficient privilege, \ne.g. lack of the object privilege SELECT on the view SYS.M_INIFILE_CONTENT_HISTORY.\n", logman)
         os._exit(1)
-    sql = "ALTER SYSTEM CLEAR INIFILE CONTENT HISTORY UNTIL ADD_DAYS(CURRENT_TIMESTAMP, -"+str(minRetainedIniDays)+")"
+    d = datetime.today() - timedelta(days=minRetainedIniDays)
+    sql = "ALTER SYSTEM CLEAR INIFILE CONTENT HISTORY UNTIL '"+str(d)+"'"
     errorlog = "\nERROR: The user represented by the key "+sqlman.key+" could not delete inifile history. \nOne possible reason for this is insufficient privilege.\n"
     errorlog += "If there is another error (i.e. not insufficient privilege) then please try to execute \n"+sql+"\nin e.g. the SQL editor in SAP HANA Studio. If you get the same error then this has nothing to do with hanacleaner"
     try_execute_sql(sql, errorlog, sqlman, logman)     
@@ -630,19 +631,17 @@ def zipBackupLogs(zipBackupLogsSizeLimit, zipBackupPath, zipLinks, zipOut, zipKe
                     subprocess.check_output("rm "+newname, shell=True)
     return nZipped
     
-def cdalias(alias):   # alias e.g. cdtrace, cdhdb, ...  Avoid possible ANSI escape codes for formatting of the linux terminal output (\x1b[A;B;Cm   \x1b[0m)
-    escapesequence = re.compile(r'\x1b[^m]*m')                                    #to remove ANSI escape codes (in case Linux formatting is used)
+def cdalias(alias):   # alias e.g. cdtrace, cdhdb, ...
     command_run = subprocess.check_output(['/bin/bash', '-l', '-c', "alias "+alias])
     #pieces = command_run.strip("\n").strip("alias "+alias+"=").strip("'").strip("cd ").split("/")
-    pieces = re.sub(r'.*cd ','',command_run).strip("\n").strip("'").split("/")    #to remove ANSI escape codes (in case Linux formatting is used)
+    pieces = re.sub(r'.*cd ','',command_run).strip("\n").strip("'").split("/")    #to remove ANSI escape codes (only needed in few systems)
     path = ''
     for piece in pieces:
         if piece and piece[0] == '$':
             piece = (subprocess.check_output(['/bin/bash', '-l', '-c', "echo "+piece])).strip("\n")
-        #path = path + '/' + piece + '/' 
-        path = escapesequence.sub('', ( path + piece + '/'))                      #to remove ANSI escape codes (in case Linux formatting is used)
+        path = path + '/' + piece + '/' 
     return path  
-    
+
 def reclaim_logsegments(maxFreeLogsegments, sqlman, logman):
     nTotFreeLogsegmentsBefore = int(subprocess.check_output(sqlman.hdbsql_jAQaxU + " \"SELECT COUNT(*) FROM SYS.M_LOG_SEGMENTS WHERE STATE = 'Free'\"", shell=True, stderr=subprocess.STDOUT).strip(' '))
     if nTotFreeLogsegmentsBefore == 0:
