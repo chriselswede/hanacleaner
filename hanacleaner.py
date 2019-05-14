@@ -128,6 +128,7 @@ def printHelp():
     print("         ---- INPUT  ----                                                                                                          ")
     print(" -ff     flag file, full path to a file that contains input flags, each flag in a new line, all lines in the file that does not    ")
     print("         start with a flag are considered comments, if this flag is used no other flags should be given, default: '' (not used)    ")
+    print("         Note: if you include %SID in the output path, it will automatically be replaced with the actually SID of your system      ")
     print("         ---- EXECUTE  ----                                                                                                        ")
     print(" -es     execute sql [true/false], execute all crucial housekeeping tasks (useful to turn off for investigation with -os=true),    ")
     print("         default: true                                                                                                             ")
@@ -1016,6 +1017,9 @@ def main():
                 print "INPUT ERROR: Every second argument has to be a flag, i.e. start with -. Please see --help for more information."
                 os._exit(1)
 
+    ############ GET SID ##########
+    SID = subprocess.check_output('whoami', shell=True).replace('\n','').replace('adm','').upper() 
+
     #####################  PRIMARY INPUT ARGUMENTS   ####################     
     if '-h' in sys.argv or '--help' in sys.argv:
         printHelp()   
@@ -1023,6 +1027,7 @@ def main():
         printDisclaimer()    
     if '-ff' in sys.argv:
         flag_file = sys.argv[sys.argv.index('-ff') + 1]
+        flag_file = flag_file.replace('%SID', SID)
 
     ############ CONFIGURATION FILE ###################
     if flag_file:
@@ -1268,6 +1273,7 @@ def main():
         hanacleaner_interval = sys.argv[sys.argv.index('-hci') + 1]
     if '-ff' in sys.argv:
         flag_file = sys.argv[sys.argv.index('-ff') + 1]
+        flag_file = flag_file.replace('%SID', SID)
     if '-so' in sys.argv:
         std_out = sys.argv[sys.argv.index('-so') + 1]
     if '-ssl' in sys.argv:
@@ -1281,9 +1287,8 @@ def main():
     if '-en' in sys.argv:
         email_notif = [x for x in sys.argv[  sys.argv.index('-en') + 1   ].split(',')]
 
-    ############ GET LOCAL HOST and SID ##########
-    local_host = subprocess.check_output("hostname", shell=True).replace('\n','') if virtual_local_host == "" else virtual_local_host
-    SID = subprocess.check_output('whoami', shell=True).replace('\n','').replace('adm','').upper()    
+    ############ GET LOCAL HOST ##########
+    local_host = subprocess.check_output("hostname", shell=True).replace('\n','') if virtual_local_host == "" else virtual_local_host   
 
     ############# STD OUT, LOG DIRECTORY and LOG MANAGER #########
     std_out = checkAndConvertBooleanFlag(std_out, "-so", LogManager("", True))
