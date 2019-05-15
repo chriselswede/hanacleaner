@@ -48,6 +48,7 @@ def printHelp():
     print("         Note: -gd and -gw can also be same length lists with a commas as delimiter                                                ")
     print(" -gd     directories for general files to be deleted, a comma separated list with full paths of directories with files to be       ")
     print('         deleted according to -gr (entries pairs with entries in -gw), default "" (not used)                                       ')
+    print("         Note: if you include %SID, it will automatically be replaced with the actually SID of your system                         ")
     print(" -gw     filename parts for general files to be deleted, a comma separated list with words that files should have in their names   ")
     print('         to be deleted according to -gr (entries pairs with entries in -gd), default "" (not used)                                 ')
     print("         ----  BACKUP LOGS  ----                                                                                                   ")
@@ -128,7 +129,7 @@ def printHelp():
     print("         ---- INPUT  ----                                                                                                          ")
     print(" -ff     flag file, full path to a file that contains input flags, each flag in a new line, all lines in the file that does not    ")
     print("         start with a flag are considered comments, if this flag is used no other flags should be given, default: '' (not used)    ")
-    print("         Note: if you include %SID in the output path, it will automatically be replaced with the actually SID of your system      ")
+    print("         Note: if you include %SID in the path, it will automatically be replaced with the actually SID of your system             ")
     print("         ---- EXECUTE  ----                                                                                                        ")
     print(" -es     execute sql [true/false], execute all crucial housekeeping tasks (useful to turn off for investigation with -os=true),    ")
     print("         default: true                                                                                                             ")
@@ -1061,6 +1062,7 @@ def main():
                         retainedAnyFileDays = flagValue
                     if firstWord == '-gd':
                         anyFilePaths = [x for x in flagValue.split(',')]
+                        anyFilePaths = anyFilePaths.replace('%SID', SID)
                     if firstWord == '-gw':
                         anyFileWords = [x for x in flagValue.split(',')]
                     if firstWord == '-zb':
@@ -1187,6 +1189,7 @@ def main():
         retainedAnyFileDays = sys.argv[sys.argv.index('-gr') + 1]
     if '-gd' in sys.argv:
         anyFilePaths = [x for x in sys.argv[  sys.argv.index('-gd') + 1   ].split(',')]
+        anyFilePaths = anyFilePaths.replace('%SID', SID)
     if '-gw' in sys.argv:
         anyFileWords = [x for x in sys.argv[  sys.argv.index('-gw') + 1   ].split(',')]
     if '-zb' in sys.argv:
