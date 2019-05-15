@@ -1062,7 +1062,7 @@ def main():
                         retainedAnyFileDays = flagValue
                     if firstWord == '-gd':
                         anyFilePaths = [x for x in flagValue.split(',')]
-                        anyFilePaths = anyFilePaths.replace('%SID', SID)
+                        anyFilePaths = [p.replace('%SID', SID) for p in anyFilePaths]
                     if firstWord == '-gw':
                         anyFileWords = [x for x in flagValue.split(',')]
                     if firstWord == '-zb':
@@ -1189,7 +1189,7 @@ def main():
         retainedAnyFileDays = sys.argv[sys.argv.index('-gr') + 1]
     if '-gd' in sys.argv:
         anyFilePaths = [x for x in sys.argv[  sys.argv.index('-gd') + 1   ].split(',')]
-        anyFilePaths = anyFilePaths.replace('%SID', SID)
+        anyFilePaths = [p.replace('%SID', SID) for p in anyFilePaths]
     if '-gw' in sys.argv:
         anyFileWords = [x for x in sys.argv[  sys.argv.index('-gw') + 1   ].split(',')]
     if '-zb' in sys.argv:
