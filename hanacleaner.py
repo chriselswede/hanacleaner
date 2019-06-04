@@ -51,10 +51,11 @@ def printHelp():
     print("         Note: if you include %SID, it will automatically be replaced with the actually SID of your system                         ")
     print(" -gw     filename parts for general files to be deleted, a comma separated list with words that files should have in their names   ")
     print('         to be deleted according to -gr (entries pairs with entries in -gd), default "" (not used)                                 ')
-    print("         ----  BACKUP LOGS  ----                                                                                                   ")
+    print("         ----  BACKUP LOGS <H2SPS04 ----                                                                                           ")
     print(" -zb     backup logs compression size limit [mb], if there are any backup.log or backint.log file (see -zp below) that is bigger   ")
     print("         than this size limit, then it is compressed and renamed, default: -1 (not used)                                           ")
     print("         Note: if -tf flag is used the resulting zip file could be removed by it.                                                  ")
+    print("         Note: Don't use this with version HANA 2 SPS04 or later, instead configure size with parameters, see SAP Note 2797078     ")
     print(" -zp     zip path, specifies the path (and all subdirectories) where to look for the backup.log and backint.log files,             ")
     print("         default is the directory specified by the alias cdtrace                                                                   ")
     print(" -zl     zip links [true/false], specifies if symbolic links should be followed searching for backup logs in subdirectories        ")
@@ -1375,7 +1376,7 @@ def main():
     ### zipBackupLogsSizeLimit, -zb
     if not is_integer(zipBackupLogsSizeLimit):
         log("INPUT ERROR: -zb must be an integer. Please see --help for more information.", logman)
-        os._exit(1)
+        os._exit(1)       
     zipBackupLogsSizeLimit = int(zipBackupLogsSizeLimit)
     ### zipBackupPath, -zp
     if not os.path.exists(zipBackupPath):
@@ -1578,7 +1579,10 @@ def main():
                 [version, revision, mrevision] = hana_version_revision_maintenancerevision(sqlman, logman)
                 if retainedTraceContentDays != "-1" and (version < 2 and revision < 120):
                     log("VERSION ERROR: -tc is not supported for SAP HANA rev. < 120. (The UNTIL option is new with SPS12.)", logman)
-                    os._exit(1)            
+                    os._exit(1)       
+                if zipBackupLogsSizeLimit != "-1" and (version >= 2 and revision >= 40):
+                    log("VERSION ERROR: -zb is not supported for SAP HANA 2 rev. >= 40. Instead configure size with parameters, see SAP Note 2797078.", logman)
+                    os._exit(1)     
                 ###### START ALL HOUSE KEEPING TASKS ########
                 if minRetainedBackups >= 0 or minRetainedDays >= 0:
                     [nCleanedData, nCleanedLog] = clean_backup_catalog(minRetainedBackups, minRetainedDays, deleteBackups, outputCatalog, outputDeletedCatalog, sqlman, logman)
