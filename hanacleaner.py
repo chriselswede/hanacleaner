@@ -1580,7 +1580,7 @@ def main():
                 if retainedTraceContentDays != "-1" and (version < 2 and revision < 120):
                     log("VERSION ERROR: -tc is not supported for SAP HANA rev. < 120. (The UNTIL option is new with SPS12.)", logman)
                     os._exit(1)       
-                if zipBackupLogsSizeLimit != "-1" and (version >= 2 and revision >= 40):
+                if zipBackupLogsSizeLimit != -1 and (version >= 2 and revision >= 40):
                     log("VERSION ERROR: -zb is not supported for SAP HANA 2 rev. >= 40. Instead configure size with parameters, see SAP Note 2797078.", logman)
                     os._exit(1)     
                 ###### START ALL HOUSE KEEPING TASKS ########
