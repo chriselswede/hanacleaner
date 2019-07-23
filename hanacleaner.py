@@ -33,6 +33,8 @@ def printHelp():
     print("         removed from all hosts, default: -1 (not used)                                                                            ")
     print("         Note: Conceptual -tc is the same as -tf, but -tc is using ALTER SYSTEM CLEAR TRACES ... See SQL Ref. for more info.       ")
     print("         Note: there is a bug (fixed with rev.122.11) that could cause younger trace files to be removed.                          ")
+    print("         Note: if [expensive_statement] --> use_in_memory_tracking = true HANA will automatically flush expensive statements into  ")
+    print("               memory before deleting the *.expensive_statements.*.trc files, i.e. to keep consistency some clean-up might not work")
     print(" -tf     retention days for trace files [days], trace files, in all hosts, that are older than this number of days are removed     ")
     print("         (except for the currently opened trace files), only files with certain extensions like .trc, .log etc are taken into      ")
     print("         account, backup.log and backint.log, are excepted, please see -zb and -zp instead, default: -1 (not used)                 ")
