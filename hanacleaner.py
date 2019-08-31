@@ -198,6 +198,7 @@ def printHelp():
     print(" 3. Allow compression on trace files as well not only on backup related files                                                      ")
     print(" 4. Allow a two steps cleanup for general files, e.g. compress file older than a few hours and delete files older than some days   ")
     print(" 5. Check for multiple definitions of one flag, give ERROR, and STOP                                                               ")
+    print(" 6. Move trace files instead of deleting ... --> not a good idea ... should not touch trace files from OS, only from HANA          ")
     print("                                                                                                                                   ")
     print("AUTHOR: Christian Hansen                                                                                                           ")
     print("                                                                                                                                   ")
@@ -432,7 +433,9 @@ def clean_trace_files(retainedTraceContentDays, retainedTraceFilesDays, outputTr
         beforeTraceFiles = subprocess.check_output(sqlman.hdbsql_jAaxU + " \"select HOST, FILE_NAME from sys.m_tracefiles order by file_mtime desc\"", shell=True)
     if retainedTraceContentDays != "-1":
         oldestRetainedTraceContentDate = datetime.now() + timedelta(days = -int(retainedTraceContentDays))
-        sql = "ALTER SYSTEM CLEAR TRACES ('ALERT','CLIENT','CRASHDUMP','EMERGENCYDUMP','EXPENSIVESTATEMENT','RTEDUMP','UNLOAD','ROWSTOREREORG','SQLTRACE','*') UNTIL '"+oldestRetainedTraceContentDate.strftime('%Y-%m-%d')+" "+datetime.now().strftime("%H:%M:%S")+"'" 
+        # Removed EXPENSIVESTATEMENTS and opened internal incident 1980358670 --> return once fixed.
+        #sql = "ALTER SYSTEM CLEAR TRACES ('ALERT','CLIENT','CRASHDUMP','EMERGENCYDUMP','EXPENSIVESTATEMENT','RTEDUMP','UNLOAD','ROWSTOREREORG','SQLTRACE','*') UNTIL '"+oldestRetainedTraceContentDate.strftime('%Y-%m-%d')+" "+datetime.now().strftime("%H:%M:%S")+"'" 
+        sql = "ALTER SYSTEM CLEAR TRACES ('ALERT','CLIENT','CRASHDUMP','EMERGENCYDUMP','RTEDUMP','UNLOAD','ROWSTOREREORG','SQLTRACE','*') UNTIL '"+oldestRetainedTraceContentDate.strftime('%Y-%m-%d')+" "+datetime.now().strftime("%H:%M:%S")+"'" 
         errorlog = "\nERROR: The user represented by the key "+sqlman.key+" could not clear traces. \nOne possible reason for this is insufficient privilege, \ne.g. lack of the system privilege TRACE ADMIN.\n"
         errorlog += "If there is another error (i.e. not insufficient privilege) then please try to execute \n"+sql+"\nin e.g. the SQL editor in SAP HANA Studio. If you get the same error then this has nothing to do with hanacleaner"
         try_execute_sql(sql, errorlog, sqlman, logman)          
@@ -667,12 +670,12 @@ def reclaim_logsegments(maxFreeLogsegments, sqlman, logman):
     
     
 def clean_events(minRetainedDaysForHandledEvents, minRetainedDaysForEvents, sqlman, logman):
-    nHandledEventsBefore = int(subprocess.check_output(sqlman.hdbsql_jAQaxU + " \"SELECT COUNT(*) FROM SYS.M_EVENTS WHERE STATE = 'HANDLED'\"", shell=True).strip(' '))
+    nHandledEventsBefore = int(subprocess.check_output(sqlman.hdbsql_jAQaxU + " \"SELECT COUNT(*) FROM SYS.M_EVENTS WHERE STATE = 'HANDLED' and TYPE != 'INFO'\"", shell=True).strip(' '))
     nEventsBefore = int(subprocess.check_output(sqlman.hdbsql_jAQaxU + " \"SELECT COUNT(*) FROM SYS.M_EVENTS \"", shell=True).strip(' '))
     if nEventsBefore == 0:
         return [0,0,0,0]    
     oldestDayForKeepingHandledEvent = datetime.now() + timedelta(days = -int(minRetainedDaysForHandledEvents))
-    listOfHandledEventsToRemove = subprocess.check_output(sqlman.hdbsql_jAaxU + " \"SELECT HOST, PORT, ID FROM SYS.M_EVENTS WHERE STATE = 'HANDLED' AND CREATE_TIME < '"+oldestDayForKeepingHandledEvent.strftime('%Y-%m-%d')+" 00:00:00'\"", shell=True).splitlines(1)
+    listOfHandledEventsToRemove = subprocess.check_output(sqlman.hdbsql_jAaxU + " \"SELECT HOST, PORT, ID FROM SYS.M_EVENTS WHERE STATE = 'HANDLED' and TYPE != 'INFO' AND CREATE_TIME < '"+oldestDayForKeepingHandledEvent.strftime('%Y-%m-%d')+" 00:00:00'\"", shell=True).splitlines(1)
     listOfHandledEventsToRemove = [event.strip('\n').strip('|').split('|') for event in listOfHandledEventsToRemove]
     listOfHandledEventsToRemove = [[evComp.strip(' ') for evComp in event] for event in listOfHandledEventsToRemove]
     for event in listOfHandledEventsToRemove:
@@ -683,7 +686,7 @@ def clean_events(minRetainedDaysForHandledEvents, minRetainedDaysForEvents, sqlm
         try_execute_sql(sql1, errorlog, sqlman, logman)              
         try_execute_sql(sql2, errorlog, sqlman, logman)
     oldestDayForKeepingEvent = datetime.now() + timedelta(days = -int(minRetainedDaysForEvents))    
-    listOfEventsToRemove = subprocess.check_output(sqlman.hdbsql_jAaxU + " \"SELECT HOST, PORT, ID FROM SYS.M_EVENTS WHERE CREATE_TIME < '"+oldestDayForKeepingEvent.strftime('%Y-%m-%d')+" 00:00:00'\"", shell=True).splitlines(1)
+    listOfEventsToRemove = subprocess.check_output(sqlman.hdbsql_jAaxU + " \"SELECT HOST, PORT, ID FROM SYS.M_EVENTS WHERE TYPE != 'INFO' and CREATE_TIME < '"+oldestDayForKeepingEvent.strftime('%Y-%m-%d')+" 00:00:00'\"", shell=True).splitlines(1)
     listOfEventsToRemove = [event.strip('\n').strip('|').split('|') for event in listOfEventsToRemove]
     listOfEventsToRemove = [[evComp.strip(' ') for evComp in event] for event in listOfEventsToRemove]
     for event in listOfEventsToRemove:
@@ -695,7 +698,7 @@ def clean_events(minRetainedDaysForHandledEvents, minRetainedDaysForEvents, sqlm
         try_execute_sql(sql1, errorlog, sqlman, logman)              
         try_execute_sql(sql2, errorlog, sqlman, logman)
         try_execute_sql(sql3, errorlog, sqlman, logman)              
-    nHandledEventsAfter = int(subprocess.check_output(sqlman.hdbsql_jAQaxU + " \"SELECT COUNT(*) FROM SYS.M_EVENTS WHERE STATE = 'HANDLED'\"", shell=True).strip(' '))
+    nHandledEventsAfter = int(subprocess.check_output(sqlman.hdbsql_jAQaxU + " \"SELECT COUNT(*) FROM SYS.M_EVENTS WHERE STATE = 'HANDLED' and TYPE != 'INFO'\"", shell=True).strip(' '))
     nEventsAfter = int(subprocess.check_output(sqlman.hdbsql_jAQaxU + " \"SELECT COUNT(*) FROM SYS.M_EVENTS \"", shell=True).strip(' '))    
     return [nHandledEventsBefore - nHandledEventsAfter, nEventsBefore - nEventsAfter, nEventsAfter, nHandledEventsAfter]
 
@@ -1543,7 +1546,7 @@ def main():
             if "NOT FOUND" in key_environment:
                 print "ERROR, the key ", dbuserkey, " is not maintained in hdbuserstore."
                 os._exit(1)
-            ENV = key_environment.split('\n')[1].replace('  ENV : ','').split(',')
+            ENV = key_environment.split('\n')[1].replace('  ENV : ','').replace(';',',').split(',')
             key_hosts = [env.split(':')[0] for env in ENV] 
             if not local_host in key_hosts:
                 print "ERROR, local host, ", local_host, ", should be one of the hosts specified for the key, ", dbuserkey, " (in case of virtual, please use -vlh, see --help for more info)"
