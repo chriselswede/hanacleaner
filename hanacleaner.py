@@ -686,18 +686,26 @@ def clean_events(minRetainedDaysForHandledEvents, minRetainedDaysForEvents, sqlm
         try_execute_sql(sql1, errorlog, sqlman, logman)              
         try_execute_sql(sql2, errorlog, sqlman, logman)
     oldestDayForKeepingEvent = datetime.now() + timedelta(days = -int(minRetainedDaysForEvents))    
-    listOfEventsToRemove = subprocess.check_output(sqlman.hdbsql_jAaxU + " \"SELECT HOST, PORT, ID FROM SYS.M_EVENTS WHERE TYPE != 'INFO' and CREATE_TIME < '"+oldestDayForKeepingEvent.strftime('%Y-%m-%d')+" 00:00:00'\"", shell=True).splitlines(1)
+    listOfEventsToRemove = subprocess.check_output(sqlman.hdbsql_jAaxU + " \"SELECT HOST, PORT, ID, STATE FROM SYS.M_EVENTS WHERE TYPE != 'INFO' and CREATE_TIME < '"+oldestDayForKeepingEvent.strftime('%Y-%m-%d')+" 00:00:00'\"", shell=True).splitlines(1)
     listOfEventsToRemove = [event.strip('\n').strip('|').split('|') for event in listOfEventsToRemove]
     listOfEventsToRemove = [[evComp.strip(' ') for evComp in event] for event in listOfEventsToRemove]
     for event in listOfEventsToRemove:
-        sql1 = "ALTER SYSTEM SET EVENT ACKNOWLEDGED '"+event[0]+":"+event[1]+"' "+event[2]
-        sql2 = "ALTER SYSTEM SET EVENT HANDLED '"+event[0]+":"+event[1]+"' "+event[2]
-        sql3 = "ALTER SYSTEM DELETE HANDLED EVENT '"+event[0]+":"+event[1]+"' "+event[2]
-        errorlog = "\nERROR: The user represented by the key "+sqlman.key+" could not delet events. \nOne possible reason for this is insufficient privilege, \ne.g. lack of the privilege MONITOR ADMIN.\n"
-        errorlog += "If there is another error (i.e. not insufficient privilege) then please try to execute \n"+sql1+"\nand\n"+sql2+"\nand\n"+sql3+"\nin e.g. the SQL editor in SAP HANA Studio. If you get the same error then this has nothing to do with hanacleaner"
-        try_execute_sql(sql1, errorlog, sqlman, logman)              
-        try_execute_sql(sql2, errorlog, sqlman, logman)
-        try_execute_sql(sql3, errorlog, sqlman, logman)              
+        if event[3] != 'INFO': 
+            sql1 = "ALTER SYSTEM SET EVENT ACKNOWLEDGED '"+event[0]+":"+event[1]+"' "+event[2]
+            sql2 = "ALTER SYSTEM SET EVENT HANDLED '"+event[0]+":"+event[1]+"' "+event[2]
+            sql3 = "ALTER SYSTEM DELETE HANDLED EVENT '"+event[0]+":"+event[1]+"' "+event[2]
+            errorlog = "\nERROR: The user represented by the key "+sqlman.key+" could not delete events. \nOne possible reason for this is insufficient privilege, \ne.g. lack of the privilege MONITOR ADMIN.\n"
+            errorlog += "If there is another error (i.e. not insufficient privilege) then please try to execute \n"+sql1+"\nand\n"+sql2+"\nand\n"+sql3+"\nin e.g. the SQL editor in SAP HANA Studio. If you get the same error then this has nothing to do with hanacleaner"
+            try_execute_sql(sql1, errorlog, sqlman, logman)              
+            try_execute_sql(sql2, errorlog, sqlman, logman)
+            try_execute_sql(sql3, errorlog, sqlman, logman) 
+        else: # if STATE == INFO see SAP Note 2253869
+            sql1 = "ALTER SYSTEM SET EVENT ACKNOWLEDGED '"+event[0]+":"+event[1]+"' "+event[2]
+            sql2 = "ALTER SYSTEM DELETE HANDLED EVENT '"+event[0]+":"+event[1]+"' "+event[2]
+            errorlog = "\nERROR: The user represented by the key "+sqlman.key+" could not delete events. \nOne possible reason for this is insufficient privilege, \ne.g. lack of the privilege MONITOR ADMIN.\n"
+            errorlog += "If there is another error (i.e. not insufficient privilege) then please try to execute \n"+sql1+"\nand\n"+sql2+"\nin e.g. the SQL editor in SAP HANA Studio. If you get the same error then this has nothing to do with hanacleaner"
+            try_execute_sql(sql1, errorlog, sqlman, logman)              
+            try_execute_sql(sql2, errorlog, sqlman, logman)             
     nHandledEventsAfter = int(subprocess.check_output(sqlman.hdbsql_jAQaxU + " \"SELECT COUNT(*) FROM SYS.M_EVENTS WHERE STATE = 'HANDLED' and TYPE != 'INFO'\"", shell=True).strip(' '))
     nEventsAfter = int(subprocess.check_output(sqlman.hdbsql_jAQaxU + " \"SELECT COUNT(*) FROM SYS.M_EVENTS \"", shell=True).strip(' '))    
     return [nHandledEventsBefore - nHandledEventsAfter, nEventsBefore - nEventsAfter, nEventsAfter, nHandledEventsAfter]
