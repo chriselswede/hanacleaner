@@ -82,6 +82,7 @@ def printHelp():
     print("         ---- EVENTS  ----                                                                                                         ")
     print(" -eh     min retained days for handled events [day], minimum retained days for the handled events, handled events that are older   ")
     print("         are removed by first being acknowledged and then deleted, this is done for all hosts, default: -1 (not used)              ")
+    print("         Note: Due to a current issue in HANA all events of type INFO are ignored.                                                 ")
     print(" -eu     min retained days for unhandled events [day], minimum retained days for events, events that are older are removed by      ")
     print("         first being handled and acknowledged and then deleted, this is done for all hosts, default: -1 (not used)                 ")
     print("         ----  AUDIT LOG  ----                                                                                                     ")
@@ -146,7 +147,7 @@ def printHelp():
     print(" -fs     file system, path to server to check for disk full situation before hanacleaner runs, default: blank, i.e. df -h is used  ")
     print('                      Could also be used to specify a couple of servers with e.g. -fs "|grep sapmnt"                               ')
     print(" -if     ignore filesystems and mounts, before hanacleaner starts it checks that there is no disk full situation in any of the     ")
-    print("         filesystems and/or mounts, this flag makes it possible to ignore some filesystems, with comma seperated list, from the    ")
+    print("         filesystems and/or mounts, this flag makes it possible to ignore some filesystems, with comma separated list, from the    ")
     print("         df -h  command (filesystems are in the first column and mounts normally in the 5th or 6th column), default: ''            ")
     print(" -df     filesystem check switch [true/false], it is possible to completely ignore the filesystem check (necessary if non-ascii    ")
     print("         comes out from  df -h). However, hanacleaner is NOT supported in case of full filesystem so if you turn this to false     ")
@@ -199,6 +200,7 @@ def printHelp():
     print(" 4. Allow a two steps cleanup for general files, e.g. compress file older than a few hours and delete files older than some days   ")
     print(" 5. Check for multiple definitions of one flag, give ERROR, and STOP                                                               ")
     print(" 6. Move trace files instead of deleting ... --> not a good idea ... should not touch trace files from OS, only from HANA          ")
+    print(" 7. Change -en flag to allow multiple email recievers.                                                                             ")
     print("                                                                                                                                   ")
     print("AUTHOR: Christian Hansen                                                                                                           ")
     print("                                                                                                                                   ")
@@ -446,7 +448,7 @@ def clean_trace_files(retainedTraceContentDays, retainedTraceFilesDays, outputTr
         filesToBeRemoved = [file.strip('\n').strip(' ') for file in filesToBeRemoved if file != '\n'] 
         # Ignore files with names that breaks the ALTER command, or kill.sap according to SAP Note 2349144, and backup.log and backint.log since they are taken care of by -zb, see SAP Note 2431472 about hdbdaemon, we do not want to delete any .sem or .status file, and we do not want to delete any links, e.g. .sap<SID>_HDB<inst>
         filesToBeRemoved = [file for file in filesToBeRemoved if not (" " in file or "," in file or "'" in file or "kill.sap" in file or "backup.log" in file or "backint.log" in file or "hdbdaemon.status" in file or "sapstart.sem" in file or "sapstart.log" in file or ".sap"+SID+"_HDB"+local_dbinstance in file)]
-        # Make sure we only delete files with known extensions (we dont delete .sem or .status files). Added two files without extensions that we want to delete
+        # Make sure we only delete files with known extensions (we dont delete .sem or .status files). Added two files without extensions that we want to delete. To delete files like dev_icm_sec one have to run HANACleaner as dev_icm_sec from SYSTEMDB, otherwise they are not in m_tracefiles
         filesToBeRemoved = [file for file in filesToBeRemoved if any(x in file for x in [".trc", ".log", ".stat", ".py", ".tpt", ".gz", ".zip", ".old", ".xml", ".txt", ".docs", ".cfg", ".cockpit", ".xs", "dev_icm_sec", "wdisp_icm_log"])] 
         if filesToBeRemoved:  # otherwise no file to remove
             filesToBeRemoved = [filesToBeRemoved[i:i + 100] for i in xrange(0, len(filesToBeRemoved), 100)]  #make sure we do not send too long statement, it could cause an error
@@ -669,7 +671,7 @@ def reclaim_logsegments(maxFreeLogsegments, sqlman, logman):
     return nTotFreeLogsegmentsBefore - nTotFreeLogsegmentsAfter
     
     
-def clean_events(minRetainedDaysForHandledEvents, minRetainedDaysForEvents, sqlman, logman):
+def clean_events(minRetainedDaysForHandledEvents, minRetainedDaysForEvents, sqlman, logman):                                                #ignoring INFO events, due to bug in HANA (fixed be rev. ???)
     nHandledEventsBefore = int(subprocess.check_output(sqlman.hdbsql_jAQaxU + " \"SELECT COUNT(*) FROM SYS.M_EVENTS WHERE STATE = 'HANDLED' and TYPE != 'INFO'\"", shell=True).strip(' '))
     nEventsBefore = int(subprocess.check_output(sqlman.hdbsql_jAQaxU + " \"SELECT COUNT(*) FROM SYS.M_EVENTS \"", shell=True).strip(' '))
     if nEventsBefore == 0:
