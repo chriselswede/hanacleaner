@@ -53,6 +53,7 @@ def printHelp():
     print("         Note: if you include %SID, it will automatically be replaced with the actually SID of your system                         ")
     print(" -gw     filename parts for general files to be deleted, a comma separated list with words that files should have in their names   ")
     print('         to be deleted according to -gr (entries pairs with entries in -gd), default "" (not used)                                 ')
+    print(" -gm     max depth, maximum recursive folders from folder specified by -gd it will delete files from, default: 1                   ")
     print("         ----  BACKUP LOGS <H2SPS04 ----                                                                                           ")
     print(" -zb     backup logs compression size limit [mb], if there are any backup.log or backint.log file (see -zp below) that is bigger   ")
     print("         than this size limit, then it is compressed and renamed, default: -1 (not used)                                           ")
@@ -644,12 +645,22 @@ def zipBackupLogs(zipBackupLogsSizeLimit, zipBackupPath, zipLinks, zipOut, zipKe
     
 def cdalias(alias):   # alias e.g. cdtrace, cdhdb, ...
     command_run = subprocess.check_output(['/bin/bash', '-l', '-c', "alias "+alias])
+
+    #TEMP TEST
+    #if '@' in command_run:
+    #    command_run = subprocess.check_output(['/bin/bash', '-i', '-c', "alias "+alias])
+
     #pieces = command_run.strip("\n").strip("alias "+alias+"=").strip("'").strip("cd ").split("/")
     pieces = re.sub(r'.*cd ','',command_run).strip("\n").strip("'").split("/")    #to remove ANSI escape codes (only needed in few systems)
     path = ''
     for piece in pieces:
         if piece and piece[0] == '$':
             piece = (subprocess.check_output(['/bin/bash', '-l', '-c', "echo "+piece])).strip("\n")
+
+            #TEMP TEST
+            #if '@' in piece:
+            #    piece = (subprocess.check_output(['/bin/bash', '-i', '-c', "echo "+piece])).strip("\n")
+
         path = path + '/' + piece + '/' 
     return path  
 
@@ -924,19 +935,23 @@ def clean_output(minRetainedOutputDays, sqlman, logman):
     nFilesAfter = len([name for name in os.listdir(path) if os.path.isfile(os.path.join(path, name))])
     return nFilesBefore - nFilesAfter  
     
-def clean_anyfile(retainedAnyFileDays, anyFilePaths, anyFileWords, sqlman, logman):
+def clean_anyfile(retainedAnyFileDays, anyFilePaths, anyFileWords, anyFileMaxDepth, sqlman, logman):
     removedFiles = 0
+    if str(retainedAnyFileDays) == "0": #then dont use -mtime, dont work
+        retainedAnyFileDaysString = ""
+    else:
+        retainedAnyFileDaysString = "-mtime +"+str(retainedAnyFileDays)
     for path, word in zip(anyFilePaths, anyFileWords):
-        nFilesBefore = len([name for name in os.listdir(path) if os.path.isfile(os.path.join(path, name)) and word in name])
+        nFilesBefore = int(subprocess.check_output("find "+path+" -maxdepth "+str(anyFileMaxDepth)+" -type f | wc -l", shell=True).strip(' '))
         with open(os.devnull, 'w') as devnull:
             if sqlman.log:
-                log("find "+path+"/*"+word+"* -mtime +"+str(retainedAnyFileDays)+" -delete", logman)
+                log("find "+path+" -maxdepth "+str(anyFileMaxDepth)+" -name '*"+word+"*' -type f "+retainedAnyFileDaysString+" -delete", logman)
             if sqlman.execute:
                 try:
-                    subprocess.check_output("find "+path+"/*"+word+"* -mtime +"+str(retainedAnyFileDays)+" -delete", shell=True, stderr=devnull)
+                    subprocess.check_output("find "+path+" -maxdepth "+str(anyFileMaxDepth)+" -name '*"+word+"*' -type f "+retainedAnyFileDaysString+" -delete", shell=True, stderr=devnull)
                 except:
                     pass   #File not  found, but no need to warn about that
-        nFilesAfter = len([name for name in os.listdir(path) if os.path.isfile(os.path.join(path, name)) and word in name])
+        nFilesAfter = int(subprocess.check_output("find "+path+" -maxdepth "+str(anyFileMaxDepth)+" -type f | wc -l", shell=True).strip(' '))
         removedFiles += nFilesBefore - nFilesAfter
     return removedFiles  
     
@@ -981,6 +996,7 @@ def main():
     retainedAnyFileDays = "-1"
     anyFilePaths = [""]
     anyFileWords = [""]
+    anyFileMaxDepth = "1"
     minRetainedAlertDays = "-1" #days
     minRetainedObjLockDays = "-1" #days
     outputAlerts = "false"
@@ -1082,6 +1098,8 @@ def main():
                         anyFilePaths = [p.replace('%SID', SID) for p in anyFilePaths]
                     if firstWord == '-gw':
                         anyFileWords = [x for x in flagValue.split(',')]
+                    if firstWord == '-gm':
+                        anyFileMaxDepth = flagValue
                     if firstWord == '-zb':
                         zipBackupLogsSizeLimit = flagValue
                     if firstWord == '-zp':
@@ -1209,6 +1227,8 @@ def main():
         anyFilePaths = [p.replace('%SID', SID) for p in anyFilePaths]
     if '-gw' in sys.argv:
         anyFileWords = [x for x in sys.argv[  sys.argv.index('-gw') + 1   ].split(',')]
+    if '-gm' in sys.argv:
+        anyFileMaxDepth = sys.argv[sys.argv.index('-gm') + 1]
     if '-zb' in sys.argv:
         zipBackupLogsSizeLimit = sys.argv[sys.argv.index('-zb') + 1]
     if '-zp' in sys.argv:
@@ -1386,8 +1406,16 @@ def main():
     if not len(anyFileWords) == len(anyFilePaths):
         log("INPUT ERROR: -gw must be a list of the same length as -gd. Please see --help for more information.", logman)
         os._exit(1)
-    if len(anyFileWords) == 0 and not retainedAnyFileDays == "-1":
+    if len(anyFileWords) == 1 and anyFileWords[0] == "" and not retainedAnyFileDays == "-1":
         log("INPUT ERROR: -gw must be specified if -gr is. Please see --help for more information.", logman)
+        os._exit(1)
+    ### anyFileMaxDepth, -gm
+    if not is_integer(anyFileMaxDepth):
+        log("INPUT ERROR: -gm must be an integer. Please see --help for more information.", logman)
+        os._exit(1)
+    anyFileMaxDepth = int(anyFileMaxDepth)
+    if anyFileMaxDepth < 1 or anyFileMaxDepth > 10:
+        log("INPUT ERROR: -gm must be between 1 and 10. Please see --help for more information.", logman)
         os._exit(1)
     ### zipBackupLogsSizeLimit, -zb
     if not is_integer(zipBackupLogsSizeLimit):
@@ -1622,7 +1650,7 @@ def main():
                 else:
                     log("    (Cleaning dumps was not done since -dr was -1 (or not specified))", logman)
                 if retainedAnyFileDays != "-1":
-                    nCleaned = clean_anyfile(retainedAnyFileDays, anyFilePaths, anyFileWords, sqlman, logman)
+                    nCleaned = clean_anyfile(retainedAnyFileDays, anyFilePaths, anyFileWords, anyFileMaxDepth, sqlman, logman)
                     logmessage = str(nCleaned)+" general files were removed"
                     log(logmessage, logman)
                     emailmessage += logmessage+"\n"
