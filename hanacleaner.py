@@ -267,7 +267,7 @@ class EmailSender:
 ######################## FUNCTION DEFINITIONS ################################
 
 def get_sid():
-    SID = subprocess.check_output('echo $SAPSYSTEMNAME',  shell=True)
+    SID = subprocess.check_output('echo $SAPSYSTEMNAME',  shell=True).strip("\n")
     return SID
 
 def is_integer(s):
@@ -1050,8 +1050,8 @@ def main():
                 os._exit(1)
 
     ############ GET SID ##########
-    SID = subprocess.check_output('whoami', shell=True).replace('\n','').replace('adm','').upper() 
-    SID = get_sid().strip("\n")
+    
+    SID = get_sid()
 
     #####################  PRIMARY INPUT ARGUMENTS   ####################     
     if '-h' in sys.argv or '--help' in sys.argv:
