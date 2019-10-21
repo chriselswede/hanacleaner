@@ -267,7 +267,7 @@ class EmailSender:
 ######################## FUNCTION DEFINITIONS ################################
 
 def get_sid():
-    SID = subprocess.check_output('echo $SAPSYSTEMNAME',  shell=True).strip("\n")
+    SID = subprocess.check_output('echo $SAPSYSTEMNAME',  shell=True).strip("\n").upper()
     return SID
 
 def is_integer(s):
@@ -649,7 +649,7 @@ def zipBackupLogs(zipBackupLogsSizeLimit, zipBackupPath, zipLinks, zipOut, zipKe
 def cdalias(alias):   # alias e.g. cdtrace, cdhdb, ...
     whoami = subprocess.check_output('whoami', shell=True).replace('\n','')
     if whoami.lower() == 'root':
-        sidadm = get_sid().strip("\n").lower()+'adm'
+        sidadm = get_sid().lower()+'adm'
         cmd1 = 'su - '+sidadm+' /bin/bash -l -c \'alias '+alias+'\''
         command_run = subprocess.check_output(cmd1, shell=True)
     else:
