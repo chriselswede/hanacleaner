@@ -1053,7 +1053,7 @@ def main():
                 os._exit(1)
 
     ############ GET SID ##########
-    SID = subprocess.check_output('whoami', shell=True).replace('\n','').replace('adm','').upper() 
+    SID = get_sid()
 
     #####################  PRIMARY INPUT ARGUMENTS   ####################     
     if '-h' in sys.argv or '--help' in sys.argv:
