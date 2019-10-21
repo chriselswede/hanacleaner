@@ -647,25 +647,22 @@ def zipBackupLogs(zipBackupLogsSizeLimit, zipBackupPath, zipLinks, zipOut, zipKe
     return nZipped
     
 def cdalias(alias):   # alias e.g. cdtrace, cdhdb, ...
+    su_cmd = ''
     whoami = subprocess.check_output('whoami', shell=True).replace('\n','')
     if whoami.lower() == 'root':
         sidadm = get_sid().lower()+'adm'
-        cmd1 = 'su - '+sidadm+' /bin/bash -l -c \'alias '+alias+'\''
-        command_run = subprocess.check_output(cmd1, shell=True)
-    else:
-        command_run = subprocess.check_output(['/bin/bash', '-l', '-c', "alias "+alias])
+        su_cmd = 'su - '+sidadm+' '
+    alias_cmd = su_cmd+'/bin/bash -l -c \'alias '+alias+'\''
+    command_run = subprocess.check_output(alias_cmd, shell=True)
     #pieces = command_run.strip("\n").strip("alias "+alias+"=").strip("'").strip("cd ").split("/")
     pieces = re.sub(r'.*cd ','',command_run).strip("\n").strip("'").split("/")    #to remove ANSI escape codes (only needed in few systems)
     path = ''
     for piece in pieces:
         if piece and piece[0] == '$':
-            if whoami.lower() == 'root':
-                cmd2 ='su - '+sidadm+' /bin/bash -l -c'+"\' echo "+piece+'\''
-                piece = (subprocess.check_output(cmd2, shell=True)).strip("\n")
-            else:
-                piece = (subprocess.check_output(['/bin/bash', '-l', '-c', "echo "+piece])).strip("\n")
+            piece_cmd = su_cmd+'/bin/bash -l -c'+" \' echo "+piece+'\''
+            piece = (subprocess.check_output(piece_cmd, shell=True)).strip("\n")
         path = path + '/' + piece + '/' 
-    return path  
+    return path
 
 def reclaim_logsegments(maxFreeLogsegments, sqlman, logman):
     nTotFreeLogsegmentsBefore = int(subprocess.check_output(sqlman.hdbsql_jAQaxU + " \"SELECT COUNT(*) FROM SYS.M_LOG_SEGMENTS WHERE STATE = 'Free'\"", shell=True, stderr=subprocess.STDOUT).strip(' '))
