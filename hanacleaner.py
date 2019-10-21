@@ -266,6 +266,10 @@ class EmailSender:
 
 ######################## FUNCTION DEFINITIONS ################################
 
+def get_sid():
+    SID = subprocess.check_output('echo $SAPSYSTEMNAME',  shell=True)
+    return SID
+
 def is_integer(s):
     try:
         int(s)
@@ -643,13 +647,23 @@ def zipBackupLogs(zipBackupLogsSizeLimit, zipBackupPath, zipLinks, zipOut, zipKe
     return nZipped
     
 def cdalias(alias):   # alias e.g. cdtrace, cdhdb, ...
-    command_run = subprocess.check_output(['/bin/bash', '-l', '-c', "alias "+alias])
+    whoami = subprocess.check_output('whoami', shell=True).replace('\n','')
+    if whoami.lower() == 'root':
+        sidadm = get_sid().strip("\n").lower()+'adm'
+        cmd1 = 'su - '+sidadm+' /bin/bash -l -c \'alias '+alias+'\''
+        command_run = subprocess.check_output(cmd1, shell=True)
+    else:
+        command_run = subprocess.check_output(['/bin/bash', '-l', '-c', "alias "+alias])
     #pieces = command_run.strip("\n").strip("alias "+alias+"=").strip("'").strip("cd ").split("/")
     pieces = re.sub(r'.*cd ','',command_run).strip("\n").strip("'").split("/")    #to remove ANSI escape codes (only needed in few systems)
     path = ''
     for piece in pieces:
         if piece and piece[0] == '$':
-            piece = (subprocess.check_output(['/bin/bash', '-l', '-c', "echo "+piece])).strip("\n")
+            if whoami.lower() == 'root':
+                cmd2 ='su - '+sidadm+' /bin/bash -l -c'+"\' echo "+piece+'\''
+                piece = (subprocess.check_output(cmd2, shell=True)).strip("\n")
+            else:
+                piece = (subprocess.check_output(['/bin/bash', '-l', '-c', "echo "+piece])).strip("\n")
         path = path + '/' + piece + '/' 
     return path  
 
@@ -1037,6 +1051,7 @@ def main():
 
     ############ GET SID ##########
     SID = subprocess.check_output('whoami', shell=True).replace('\n','').replace('adm','').upper() 
+    SID = get_sid().strip("\n")
 
     #####################  PRIMARY INPUT ARGUMENTS   ####################     
     if '-h' in sys.argv or '--help' in sys.argv:
