@@ -1047,7 +1047,6 @@ def main():
                 os._exit(1)
 
     ############ GET SID ##########
-    
     SID = get_sid()
 
     #####################  PRIMARY INPUT ARGUMENTS   ####################     
