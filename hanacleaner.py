@@ -145,6 +145,8 @@ def printHelp():
     print("         Note: if you include %SID in the output path, it will automatically be replaced with the actually SID of your system      ")
     print(" -or     output retention days, logs in the path specified with -op are only saved for this number of days, default: -1 (not used) ")
     print(" -so     standard out switch [true/false], switch to write to standard out, default:  true                                         ")
+    print("         ---- INSTANCE ONLINE CHECK ----                                                                                           ")
+    print(" -oi     online test interval [seconds], time it waits before it checks if DB is online and primary again, default: -1 (not used)  ")
     print("         ---- SERVER FULL CHECK ----                                                                                               ")
     print(" -fs     file system, path to server to check for disk full situation before hanacleaner runs, default: blank, i.e. df -h is used  ")
     print('                      Could also be used to specify a couple of servers with e.g. -fs "|grep sapmnt"                               ')
@@ -329,6 +331,31 @@ def sql_for_backup_id_for_min_retained_days(minRetainedDays):
 def sql_for_backup_id_for_min_retained_backups(minRetainedBackups):
     return "SELECT ENTRY_ID, SYS_START_TIME from (SELECT ENTRY_ID, SYS_START_TIME, ROW_NUMBER() OVER(ORDER BY SYS_START_TIME desc) as NUM from sys.m_backup_catalog where (ENTRY_TYPE_NAME = 'complete data backup' or ENTRY_TYPE_NAME = 'data snapshot') and STATE_NAME = 'successful' order by SYS_START_TIME desc) as B where B.NUM = "+str(minRetainedBackups)
 
+def online_tests(online_test_interval, local_dbinstance, logman):
+    if online_test_interval < 0: #then dont test
+        return True
+    else:
+        return is_online(local_dbinstance, logman) and not is_secondary(logman)
+
+def is_online(dbinstance, logman):
+    process = subprocess.Popen(['sapcontrol', '-nr', dbinstance, '-function', 'GetProcessList'], stdout=subprocess.PIPE)
+    out, err = process.communicate()
+    number_services = out.count(" HDB ")    
+    number_running_services = out.count("GREEN")
+    test_ok = (str(err) == "None")
+    result = number_running_services == number_services
+    printout = "Online Check      , "+datetime.now().strftime("%Y-%m-%d %H:%M:%S")+"    ,     -            , "+str(test_ok)+"         , "+str(result)+"       , Number running services: "+str(number_running_services)+" out of "+str(number_services)
+    log(printout, logman)
+    return result
+    
+def is_secondary(logman):
+    process = subprocess.Popen(['hdbnsutil', '-sr_state'], stdout=subprocess.PIPE)
+    out, err = process.communicate() 
+    test_ok = (str(err) == "None")
+    result = "active primary site" in out   # then it is secondary!
+    printout = "Primary Check     , "+datetime.now().strftime("%Y-%m-%d %H:%M:%S")+"    ,     -            , "+str(test_ok)+"         , "+str(not result)+"       , " 
+    log(printout, logman)
+    return result 
 
 def backup_id(minRetainedBackups, minRetainedDays, sqlman):
     if minRetainedDays >= 0:
@@ -1034,6 +1061,7 @@ def main():
     out_path = ""
     do_df_check = 'true'
     minRetainedOutputDays = "-1" #days
+    online_test_interval = "-1" #seconds
     std_out = "true" #print to std out
     virtual_local_host = "" #default: assume physical local host
     ssl = "false"
@@ -1174,6 +1202,8 @@ def main():
                         out_path = flagValue
                     if firstWord == '-or':
                         minRetainedOutputDays = flagValue
+                    if firstWord == '-oi':
+                        online_test_interval = flagValue
                     if firstWord == '-fs':
                         file_system = flagValue
                     if firstWord == '-if':
@@ -1303,6 +1333,8 @@ def main():
         out_path = sys.argv[sys.argv.index('-op') + 1]
     if '-or' in sys.argv:
         minRetainedOutputDays = sys.argv[sys.argv.index('-or') + 1]
+    if '-oi' in sys.argv:
+        online_test_interval = sys.argv[sys.argv.index('-oi') + 1]
     if '-fs' in sys.argv:
         file_system = sys.argv[sys.argv.index('-fs') + 1]
     if '-if' in sys.argv:
@@ -1422,10 +1454,11 @@ def main():
         log("INPUT ERROR: -zb must be an integer. Please see --help for more information.", logman)
         os._exit(1)       
     zipBackupLogsSizeLimit = int(zipBackupLogsSizeLimit)
-    ### zipBackupPath, -zp
-    if not os.path.exists(zipBackupPath):
-        log("INPUT ERROR: The path provided with -zp does not exist. Please see --help for more information.\n"+zipBackupPath, logman)
-        os._exit(1)
+    if zipBackupLogsSizeLimit != -1:
+        ### zipBackupPath, -zp
+        if not os.path.exists(zipBackupPath):
+            log("INPUT ERROR: The path provided with -zp does not exist. Please see --help for more information.\n"+zipBackupPath, logman)
+            os._exit(1)
     ### zipLinks, -zl
     zipLinks = checkAndConvertBooleanFlag(zipLinks, "-zl", logman)
     ### zipOut, -zo
@@ -1561,6 +1594,11 @@ def main():
     if minRetainedOutputDays >= 0 and out_path == "":
         log("INPUT ERROR: -op has to be specified if -or is. Please see --help for more information.", logman)
         os._exit(1)
+    ### online_test_interval, -oi
+    if not is_integer(online_test_interval):
+        log("INPUT ERROR: -oi must be an integer. Please see --help for more information.", logman)
+        os._exit(1)
+    online_test_interval = int(online_test_interval)
     ### dbases, -dbs, and dbuserkeys, -k
     if len(dbases) > 1 and len(dbuserkeys) > 1:
         log("INPUT ERROR: -k may only specify one key if -dbs is used. Please see --help for more information.", logman)
@@ -1611,6 +1649,10 @@ def main():
                     startstring = "*********************************************\n"+datetime.now().strftime("%Y-%m-%d %H:%M:%S")+"\nhanacleaner by "+dbuserkey+"\non "+SID+"("+local_dbinstance+") "+db_string+" with \n"+" ".join(sys.argv)+"\nCleanup Statements will NOT be executed\nBefore using HANACleaner read the disclaimer!\npython hanacleaner.py --disclaimer\n*********************************************"
                 log(startstring, logman)
                 emailmessage += startstring+"\n"
+                ############ ONLINE TESTS (OPTIONAL) ##########################
+                while not online_tests(online_test_interval, local_dbinstance, logman):  #will check if Online and if Primary, but only if online_test_interval > -1           
+                    log("\nOne of the online checks found out that this HANA instance, "+str(local_dbinstance)+", is not online. \nHANACleaner will now have a "+str(online_test_interval)+" seconds break and check again if this Instance is online after the break.\n", logman)
+                    time.sleep(float(online_test_interval))  # wait online_test_interval seconds before again checking if HANA is running
                 ############ CHECK THAT USER CAN CONNECT TO HANA ###############  
                 sql = "SELECT * from DUMMY" 
                 errorlog = "USER ERROR: The user represented by the key "+dbuserkey+" cannot connect to the system. Make sure this user is properly saved in hdbuserstore."
