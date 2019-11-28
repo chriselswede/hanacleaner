@@ -146,7 +146,11 @@ def printHelp():
     print(" -or     output retention days, logs in the path specified with -op are only saved for this number of days, default: -1 (not used) ")
     print(" -so     standard out switch [true/false], switch to write to standard out, default:  true                                         ")
     print("         ---- INSTANCE ONLINE CHECK ----                                                                                           ")
-    print(" -oi     online test interval [seconds], time it waits before it checks if DB is online and primary again, default: -1 (not used)  ")
+    print(" -oi     online test interval [seconds], < 0: HANACleaner does not check if online or secondary,           default: -1 (not used)  ")
+    print("                                         = 0: if not online or not primary HANACleaner will abort                                  ")
+    print("                                         > 0: time it waits before it checks if DB is online and primary again                     ")
+    print("                                              Note: For the > 0 option it might be necessary to use cron with the lock option      ")
+    print("                                                    See the HANASitter & CRON slide in the HANASitter pdf                          ")
     print("         ---- SERVER FULL CHECK ----                                                                                               ")
     print(" -fs     file system, path to server to check for disk full situation before hanacleaner runs, default: blank, i.e. df -h is used  ")
     print('                      Could also be used to specify a couple of servers with e.g. -fs "|grep sapmnt"                               ')
@@ -1651,8 +1655,12 @@ def main():
                 emailmessage += startstring+"\n"
                 ############ ONLINE TESTS (OPTIONAL) ##########################
                 while not online_tests(online_test_interval, local_dbinstance, logman):  #will check if Online and if Primary, but only if online_test_interval > -1           
-                    log("\nOne of the online checks found out that this HANA instance, "+str(local_dbinstance)+", is not online. \nHANACleaner will now have a "+str(online_test_interval)+" seconds break and check again if this Instance is online after the break.\n", logman)
-                    time.sleep(float(online_test_interval))  # wait online_test_interval seconds before again checking if HANA is running
+                    log("\nOne of the online checks found out that this HANA instance, "+str(local_dbinstance)+", is not online. ", logman)
+                    if online_test_interval == 0:
+                        log("HANACleaner will now abort since online_test_interval = 0.", logman)
+                    else:
+                        log("HANACleaner will now have a "+str(online_test_interval)+" seconds break and check again if this Instance is online after the break.\n", logman)
+                        time.sleep(float(online_test_interval))  # wait online_test_interval seconds before again checking if HANA is running
                 ############ CHECK THAT USER CAN CONNECT TO HANA ###############  
                 sql = "SELECT * from DUMMY" 
                 errorlog = "USER ERROR: The user represented by the key "+dbuserkey+" cannot connect to the system. Make sure this user is properly saved in hdbuserstore."
