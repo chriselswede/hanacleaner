@@ -273,6 +273,10 @@ class EmailSender:
 
 ######################## FUNCTION DEFINITIONS ################################
 
+def get_sid():
+    SID = subprocess.check_output('echo $SAPSYSTEMNAME',  shell=True).strip("\n").upper()
+    return SID
+
 def is_integer(s):
     try:
         int(s)
@@ -675,25 +679,21 @@ def zipBackupLogs(zipBackupLogsSizeLimit, zipBackupPath, zipLinks, zipOut, zipKe
     return nZipped
     
 def cdalias(alias):   # alias e.g. cdtrace, cdhdb, ...
-    command_run = subprocess.check_output(['/bin/bash', '-l', '-c', "alias "+alias])
-
-    #TEMP TEST
-    #if '@' in command_run:
-    #    command_run = subprocess.check_output(['/bin/bash', '-i', '-c', "alias "+alias])
-
-    #pieces = command_run.strip("\n").strip("alias "+alias+"=").strip("'").strip("cd ").split("/")
+    su_cmd = ''
+    whoami = subprocess.check_output('whoami', shell=True).replace('\n','')
+    if whoami.lower() == 'root':
+        sidadm = get_sid().lower()+'adm'
+        su_cmd = 'su - '+sidadm+' '
+    alias_cmd = su_cmd+'/bin/bash -l -c \'alias '+alias+'\''
+    command_run = subprocess.check_output(alias_cmd, shell=True)
     pieces = re.sub(r'.*cd ','',command_run).strip("\n").strip("'").split("/")    #to remove ANSI escape codes (only needed in few systems)
     path = ''
     for piece in pieces:
         if piece and piece[0] == '$':
-            piece = (subprocess.check_output(['/bin/bash', '-l', '-c', "echo "+piece])).strip("\n")
-
-            #TEMP TEST
-            #if '@' in piece:
-            #    piece = (subprocess.check_output(['/bin/bash', '-i', '-c', "echo "+piece])).strip("\n")
-
+            piece_cmd = su_cmd+'/bin/bash -l -c'+" \' echo "+piece+'\''
+            piece = (subprocess.check_output(piece_cmd, shell=True)).strip("\n")
         path = path + '/' + piece + '/' 
-    return path  
+    return path
 
 def reclaim_logsegments(maxFreeLogsegments, sqlman, logman):
     nTotFreeLogsegmentsBefore = int(subprocess.check_output(sqlman.hdbsql_jAQaxU + " \"SELECT COUNT(*) FROM SYS.M_LOG_SEGMENTS WHERE STATE = 'Free'\"", shell=True, stderr=subprocess.STDOUT).strip(' '))
@@ -1084,7 +1084,7 @@ def main():
                 os._exit(1)
 
     ############ GET SID ##########
-    SID = subprocess.check_output('whoami', shell=True).replace('\n','').replace('adm','').upper() 
+    SID = get_sid()
 
     #####################  PRIMARY INPUT ARGUMENTS   ####################     
     if '-h' in sys.argv or '--help' in sys.argv:
@@ -1647,10 +1647,11 @@ def main():
                 db_string = ''
                 if dbase:
                     db_string = 'on DB '+dbase
+                whoami = subprocess.check_output('whoami', shell=True).replace('\n','')
                 if sqlman.execute:
-                    startstring = "***********************************************************\n"+datetime.now().strftime("%Y-%m-%d %H:%M:%S")+"\nhanacleaner by "+dbuserkey+" on "+SID+"("+local_dbinstance+") "+db_string+" with \n"+" ".join(sys.argv)+"\nCleanup Statements will be executed (-es is default true)\nBefore using HANACleaner read the disclaimer!\npython hanacleaner.py --disclaimer\n***********************************************************" 
+                    startstring = "***********************************************************\n"+datetime.now().strftime("%Y-%m-%d %H:%M:%S")+"\nhanacleaner as "+whoami+" by "+dbuserkey+" on "+SID+"("+local_dbinstance+") "+db_string+" with \n"+" ".join(sys.argv)+"\nCleanup Statements will be executed (-es is default true)\nBefore using HANACleaner read the disclaimer!\npython hanacleaner.py --disclaimer\n***********************************************************" 
                 else:
-                    startstring = "*********************************************\n"+datetime.now().strftime("%Y-%m-%d %H:%M:%S")+"\nhanacleaner by "+dbuserkey+"\non "+SID+"("+local_dbinstance+") "+db_string+" with \n"+" ".join(sys.argv)+"\nCleanup Statements will NOT be executed\nBefore using HANACleaner read the disclaimer!\npython hanacleaner.py --disclaimer\n*********************************************"
+                    startstring = "*********************************************\n"+datetime.now().strftime("%Y-%m-%d %H:%M:%S")+"\nhanacleaner as "+whoami+" by "+dbuserkey+"\non "+SID+"("+local_dbinstance+") "+db_string+" with \n"+" ".join(sys.argv)+"\nCleanup Statements will NOT be executed\nBefore using HANACleaner read the disclaimer!\npython hanacleaner.py --disclaimer\n*********************************************"
                 log(startstring, logman)
                 emailmessage += startstring+"\n"
                 ############ ONLINE TESTS (OPTIONAL) ##########################
