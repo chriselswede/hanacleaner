@@ -1659,6 +1659,7 @@ def main():
                     log("\nOne of the online checks found out that this HANA instance, "+str(local_dbinstance)+", is not online. ", logman)
                     if online_test_interval == 0:
                         log("HANACleaner will now abort since online_test_interval = 0.", logman)
+                        os._exit(1)
                     else:
                         log("HANACleaner will now have a "+str(online_test_interval)+" seconds break and check again if this Instance is online after the break.\n", logman)
                         time.sleep(float(online_test_interval))  # wait online_test_interval seconds before again checking if HANA is running
