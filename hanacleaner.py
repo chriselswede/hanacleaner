@@ -137,12 +137,13 @@ def printHelp():
     print("         start with a flag are considered comments, if this flag is used no other flags should be given, default: '' (not used)    ")
     print("         Note: if you include %SID in the path, it will automatically be replaced with the actually SID of your system             ")
     print("         ---- EXECUTE  ----                                                                                                        ")
-    print(" -es     execute sql [true/false], execute all crucial housekeeping tasks (useful to turn off for investigation with -os=true),    ")
-    print("         default: true                                                                                                             ")
+    print(" -es     execute sql [true/false], execute all crucial housekeeping tasks (useful to turn off for investigation with -os=true,     ")
+    print("         a.k.a. chicken mode :)  default: true                                                                                     ")
     print("         ---- OUTPUT  ----                                                                                                         ")
     print(" -os     output sql [true/false], prints all crucial housekeeping tasks (useful for debugging with -es=false), default: false      ")
     print(" -op     output path, full literal path of the folder for the output logs (will be created if not there), default = '' (not used)  ")
     print("         Note: if you include %SID in the output path, it will automatically be replaced with the actually SID of your system      ")
+    print(" -of     output prefix, adds a string to the output file, default: ''   (not used)                                                 ")
     print(" -or     output retention days, logs in the path specified with -op are only saved for this number of days, default: -1 (not used) ")
     print(" -so     standard out switch [true/false], switch to write to standard out, default:  true                                         ")
     print("         ---- INSTANCE ONLINE CHECK ----                                                                                           ")
@@ -259,8 +260,9 @@ class SQLManager:
 
 
 class LogManager:
-    def __init__(self, log_path, print_to_std):
+    def __init__(self, log_path, out_prefix, print_to_std):
         self.path = log_path
+        self.out_prefix = out_prefix
         self.print_to_std = print_to_std
         
 class EmailSender:
@@ -289,7 +291,7 @@ def log(message, logmanager):
         print message
     if logmanager.path:
         file_name = "hanacleanerlog"
-        logfile = open(logmanager.path+"/"+file_name+"_"+datetime.now().strftime("%Y-%m-%d"+".txt").replace(" ", "_"), "a")
+        logfile = open(logmanager.path+"/"+file_name+"_"+logmanager.out_prefix+"_"+datetime.now().strftime("%Y-%m-%d"+".txt").replace(" ", "_"), "a")
         logfile.write(message+"\n")   
         logfile.flush()
         logfile.close()
@@ -1063,6 +1065,7 @@ def main():
     execute_sql = 'true'
     out_sql = 'false'
     out_path = ""
+    out_prefix = ""
     do_df_check = 'true'
     minRetainedOutputDays = "-1" #days
     online_test_interval = "-1" #seconds
@@ -1204,6 +1207,8 @@ def main():
                         out_sql = flagValue
                     if firstWord == '-op':
                         out_path = flagValue
+                    if firstWord == '-of':
+                        out_prefix = flagValue
                     if firstWord == '-or':
                         minRetainedOutputDays = flagValue
                     if firstWord == '-oi':
@@ -1335,6 +1340,8 @@ def main():
         out_sql = sys.argv[sys.argv.index('-os') + 1]
     if '-op' in sys.argv:
         out_path = sys.argv[sys.argv.index('-op') + 1]
+    if '-of' in sys.argv:
+        out_prefix = sys.argv[sys.argv.index('-of') + 1]
     if '-or' in sys.argv:
         minRetainedOutputDays = sys.argv[sys.argv.index('-or') + 1]
     if '-oi' in sys.argv:
@@ -1372,7 +1379,7 @@ def main():
     log_path = log_path.replace('%SID', SID)     
     if log_path and not os.path.exists(log_path):
         os.makedirs(log_path)
-    logman = LogManager(log_path, std_out)
+    logman = LogManager(log_path, out_prefix, std_out)
 
     ############ CHECK FOR DISK FULL SITUATION ###################
     ### do_df_check, -df
