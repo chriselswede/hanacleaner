@@ -144,7 +144,7 @@ def printHelp():
     print(" -op     output path, full literal path of the folder for the output logs (will be created if not there), default = '' (not used)  ")
     print("         Note: if you include %SID in the output path, it will automatically be replaced with the actually SID of your system      ")
     print(" -of     output prefix, adds a string to the output file, default: ''   (not used)                                                 ")
-    print(" -or     output retention days, logs in the path specified with -op are only saved for this number of days, default: -1 (not used) ")
+    print(" -or     output retention days, logs in the paths specified with -op are only saved for this number of days, default: -1 (not used)")
     print(" -so     standard out switch [true/false], switch to write to standard out, default:  true                                         ")
     print("         ---- INSTANCE ONLINE CHECK ----                                                                                           ")
     print(" -oi     online test interval [seconds], < 0: HANACleaner does not check if online or secondary,           default: -1 (not used)  ")
@@ -1374,7 +1374,7 @@ def main():
     local_host = subprocess.check_output("hostname", shell=True).replace('\n','') if virtual_local_host == "" else virtual_local_host   
 
     ############# STD OUT, LOG DIRECTORY and LOG MANAGER #########
-    std_out = checkAndConvertBooleanFlag(std_out, "-so", LogManager("", True))
+    std_out = checkAndConvertBooleanFlag(std_out, "-so", LogManager("", "", True))
     log_path = out_path.replace(" ","_").replace(".","_")
     log_path = log_path.replace('%SID', SID)     
     if log_path and not os.path.exists(log_path):
