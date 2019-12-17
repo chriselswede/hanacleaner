@@ -367,6 +367,11 @@ def is_secondary(logman):
     log(printout, logman)
     return result 
 
+def checkIfAcceptedFlag(word):
+    if not word in ["-h", "--help", "-d", "--disclaimer", "-ff", "-be", "-bd", "-bb", "-bo", "-br", "-tc", "-tf", "-to", "-td", "-dr", "-gr", "-gd", "-gw", "-gm", "-zb", "-zp", "-zl", "-zo", "-zk", "-ar", "-kr", "-ao", "-ad", "-om", "-oo", "-lr", "-eh", "-eu", "-ur", "-fl", "-fo", "-rc", "-ro", "-cc", "-ce", "-cr", "-cs", "-cd", "-cq", "-cu", "-cb", "-cp", "-cm", "-co", "-vs", "-vl", "-ir", "-es", "-os", "-op", "-of", "-or", "-oi", "-fs", "-if", "-df", "-hci", "-so", "-ssl", "-vlh", "-k", "-dbs", "-en"]:
+        print "INPUT ERROR: ", word, " is not one of the accapted input flags. Please see --help for more information."
+        os._exit(1)
+
 def backup_id(minRetainedBackups, minRetainedDays, sqlman):
     if minRetainedDays >= 0:
         results = subprocess.check_output(sqlman.hdbsql_jAQaxU + " \"" + sql_for_backup_id_for_min_retained_days(minRetainedDays) + "\"", shell=True).splitlines(1)
@@ -1104,6 +1109,7 @@ def main():
             for line in fin:
                 firstWord = line.strip(' ').split(' ')[0]  
                 if firstWord[0:1] == '-':
+                    checkIfAcceptedFlag(firstWord)
                     #flagValue = line.strip(' ').split(' ')[1]
                     flagValue = line.strip(' ').split('"')[1].strip('\n').strip('\r') if line.strip(' ').split(' ')[1][0] == '"' else line.strip(' ').split(' ')[1].strip('\n').strip('\r')
                     if firstWord == '-be':
@@ -1234,10 +1240,13 @@ def main():
                     if firstWord == '-en': 
                         email_notif = [x for x in flagValue.split(',')]
 
-    #####################   INPUT ARGUMENTS (these would overwrite whats in the configuration file)   ####################     
+    #####################   INPUT ARGUMENTS (these would overwrite whats in the configuration file)   ####################
+    for word in sys.argv:
+        if word[0:1] == '-':
+            checkIfAcceptedFlag(word)     
     if '-h' in sys.argv or '--help' in sys.argv:
         printHelp()
-    if '-d' in sys.argv or '--discplaimer' in sys.argv:
+    if '-d' in sys.argv or '--disclaimer' in sys.argv:
         printDisclaimer()
     if '-be' in sys.argv:
         minRetainedBackups = sys.argv[sys.argv.index('-be') + 1]
