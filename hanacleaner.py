@@ -127,6 +127,8 @@ def printHelp():
     print("         that are missing statistics according to SAP Note 1872652 (Note: could cause expenive operations),    default: false      ")
     print(" -vl     schema list of virtual tables, if you only want tables in some schemas to be considered for the creation of statistics    ")
     print("         provide here a comma seperated list of those schemas, default '' (all schemas will be considered)                         ")
+    print(" -vr     ignore secondary monitoring tables [true/false], normaly statistics for the the virtual tables in the                     ")
+    print("         _SYS_SR_SITE* schemas are not needed to be created nor updated, so they are by default ignored, default: true             ")
     print("         ---- INIFILE CONTENT HISTORY ----                                                                                         ")
     print(" -ir     inifile content history retention [days], deletes older inifile content history, default: -1 (not used) (should > 1 year) ")
     print("         ---- INTERVALL  ----                                                                                                      ")
@@ -210,6 +212,7 @@ def printHelp():
     print(" 5. Check for multiple definitions of one flag, give ERROR, and STOP                                                               ")
     print(" 6. Move trace files instead of deleting ... --> not a good idea ... should not touch trace files from OS, only from HANA          ")
     print(" 7. Change -en flag to allow multiple email recievers.                                                                             ")
+    print(" 8. Only send emails in case of some failure, either an found error or a catched error                                             ")
     print("                                                                                                                                   ")
     print("AUTHOR: Christian Hansen                                                                                                           ")
     print("                                                                                                                                   ")
@@ -226,7 +229,7 @@ def printDisclaimer():
     print(" 5. HANACleaner is a one-man's hobby (developed, maintained and supported only during non-working hours)                           ")
     print(" 6  All HANACleaner documentations have to be read and understood before any usage:                                                ")
     print("     a) SAP Note 2399996                                                                                                           ")
-    print("     b) The .pdf file that can be downloaded at the bottom of SAP Note 2399996                                                     ")
+    print("     b) The .pdf file that can be downloaded from https://github.com/chriselswede/hanacleaner                                      ")
     print("     c) All output from executing                                                                                                  ")
     print("                     python hanacleaner.py --help                                                                                  ")
     print(" 7. HANACleaner can help you execute certain SAP HANA tasks automatically but is NOT an attempt to teach you SAP HANA              ")
@@ -368,8 +371,8 @@ def is_secondary(logman):
     return result 
 
 def checkIfAcceptedFlag(word):
-    if not word in ["-h", "--help", "-d", "--disclaimer", "-ff", "-be", "-bd", "-bb", "-bo", "-br", "-tc", "-tf", "-to", "-td", "-dr", "-gr", "-gd", "-gw", "-gm", "-zb", "-zp", "-zl", "-zo", "-zk", "-ar", "-kr", "-ao", "-ad", "-om", "-oo", "-lr", "-eh", "-eu", "-ur", "-fl", "-fo", "-rc", "-ro", "-cc", "-ce", "-cr", "-cs", "-cd", "-cq", "-cu", "-cb", "-cp", "-cm", "-co", "-vs", "-vl", "-ir", "-es", "-os", "-op", "-of", "-or", "-oi", "-fs", "-if", "-df", "-hci", "-so", "-ssl", "-vlh", "-k", "-dbs", "-en"]:
-        print "INPUT ERROR: ", word, " is not one of the accapted input flags. Please see --help for more information."
+    if not word in ["-h", "--help", "-d", "--disclaimer", "-ff", "-be", "-bd", "-bb", "-bo", "-br", "-tc", "-tf", "-to", "-td", "-dr", "-gr", "-gd", "-gw", "-gm", "-zb", "-zp", "-zl", "-zo", "-zk", "-ar", "-kr", "-ao", "-ad", "-om", "-oo", "-lr", "-eh", "-eu", "-ur", "-fl", "-fo", "-rc", "-ro", "-cc", "-ce", "-cr", "-cs", "-cd", "-cq", "-cu", "-cb", "-cp", "-cm", "-co", "-vs", "-vr", "-vl", "-ir", "-es", "-os", "-op", "-of", "-or", "-oi", "-fs", "-if", "-df", "-hci", "-so", "-ssl", "-vlh", "-k", "-dbs", "-en"]:
+        print "INPUT ERROR: ", word, " is not one of the accepted input flags. Please see --help for more information."
         os._exit(1)
 
 def backup_id(minRetainedBackups, minRetainedDays, sqlman):
@@ -940,7 +943,7 @@ def force_compression(maxRawComp, maxEstComp, maxRowComp, maxMemComp, minDistCom
         log("\n", logman)
     return [len(tablesToCompress), failed]
     
-def create_vt_statistics(vtSchemas, sqlman, logman):  #SAP Note 1872652: Creating statistics on a virtual table can be an expensive operation. 
+def create_vt_statistics(vtSchemas, ignore2ndMon, sqlman, logman):  #SAP Note 1872652: Creating statistics on a virtual table can be an expensive operation. 
     #Default statistics type: HISTOGRAM --> Creates a data statistics object that helps the query optimizer estimate the data distribution in a single-column data source --> Here we create a HISTOGRAM for ALL COLUMNS of the Virtual Tables
     nVTs = int(subprocess.check_output(sqlman.hdbsql_jAQaxU + " \"select count(*) from SYS.VIRTUAL_TABLES\"", shell=True).strip(' '))
     nVTsWithoutStatBefore = int(subprocess.check_output(sqlman.hdbsql_jAQaxU + " \"select COUNT(*) from SYS.VIRTUAL_TABLES where TABLE_NAME NOT IN (select distinct DATA_SOURCE_OBJECT_NAME from SYS.DATA_STATISTICS)\"", shell=True).strip(' '))
@@ -950,16 +953,17 @@ def create_vt_statistics(vtSchemas, sqlman, logman):  #SAP Note 1872652: Creatin
     listOfVTsWithoutStat = [vt.strip('\n').strip('|').split('|') for vt in listOfVTsWithoutStat]    
     listOfVTsWithoutStat = [[elem.strip(' ') for elem in vt] for vt in listOfVTsWithoutStat]       
     for vt in listOfVTsWithoutStat: 
-        if not vtSchemas or vt[0] in vtSchemas:  #if schemas for virtual tables are provided, then only consider these schemas for creating statistics
-            columns = subprocess.check_output(sqlman.hdbsql_jAaxU + " \"select column_name from PUBLIC.TABLE_COLUMNS where table_name = '"+vt[1]+"' and schema_name = '"+vt[0]+"'\"", shell=True).splitlines(1)
-            columns =[col.strip('\n').strip('|').strip(' ') for col in columns]
-            columns = '\\\", \\\"'.join(columns)                                                          # necessary for columns with mixed letter case
-            sql = 'CREATE STATISTICS ON \\\"'+vt[0]+'\\\".\\\"'+vt[1]+'\\\" (\\\"'+columns+'\\\")'        # necessary for tables starting with / and for tables with mixed letter case 
-            errorlog = "\nERROR: The user represented by the key "+sqlman.key+" could not create statistics on "+vt[0]+"."+vt[1]+". \nOne possible reason for this is insufficient privilege\n"
-            errorlog += "\nTry, as the user represented by the key "+sqlman.key+" to simply do  SELECT * FROM "+vt[0]+"."+vt[1]+". If that does not work then it could be that the privileges of source system's technical user (used in the SDA setup) is not sufficient.\n"
-            errorlog += "If there is another error (i.e. not insufficient privilege) then please try to execute \n"+sql+"\nin e.g. the SQL editor in SAP HANA Studio. If you get the same error then this has nothing to do with hanacleaner\n"
-            errorlog += "It could be that the respective ODBC driver was not properly set up. Please then follow the SAP HANA Administration Guide."
-            try_execute_sql(sql, errorlog, sqlman, logman)  
+        if not (ignore2ndMon and "_SYS_SR_SITE" in vt[0]):  #if ignore2ndMon (default true) then do not create statistics for the virtual tables in the _SYS_SR_SITE* schema
+            if not vtSchemas or vt[0] in vtSchemas:  #if schemas for virtual tables are provided, then only consider these schemas for creating statistics
+                columns = subprocess.check_output(sqlman.hdbsql_jAaxU + " \"select column_name from PUBLIC.TABLE_COLUMNS where table_name = '"+vt[1]+"' and schema_name = '"+vt[0]+"'\"", shell=True).splitlines(1)
+                columns =[col.strip('\n').strip('|').strip(' ') for col in columns]
+                columns = '\\\", \\\"'.join(columns)                                                          # necessary for columns with mixed letter case
+                sql = 'CREATE STATISTICS ON \\\"'+vt[0]+'\\\".\\\"'+vt[1]+'\\\" (\\\"'+columns+'\\\")'        # necessary for tables starting with / and for tables with mixed letter case 
+                errorlog = "\nERROR: The user represented by the key "+sqlman.key+" could not create statistics on "+vt[0]+"."+vt[1]+". \nOne possible reason for this is insufficient privilege\n"
+                errorlog += "\nTry, as the user represented by the key "+sqlman.key+" to simply do  SELECT * FROM "+vt[0]+"."+vt[1]+". If that does not work then it could be that the privileges of source system's technical user (used in the SDA setup) is not sufficient.\n"
+                errorlog += "If there is another error (i.e. not insufficient privilege) then please try to execute \n"+sql+"\nin e.g. the SQL editor in SAP HANA Studio. If you get the same error then this has nothing to do with hanacleaner\n"
+                errorlog += "It could be that the respective ODBC driver was not properly set up. Please then follow the SAP HANA Administration Guide."
+                try_execute_sql(sql, errorlog, sqlman, logman)  
     nVTsWithoutStatAfter = int(subprocess.check_output(sqlman.hdbsql_jAQaxU + " \"select COUNT(*) from SYS.VIRTUAL_TABLES where TABLE_NAME NOT IN (select distinct DATA_SOURCE_OBJECT_NAME from SYS.DATA_STATISTICS)\"", shell=True).strip(' '))
     return [nVTs, nVTsWithoutStatBefore - nVTsWithoutStatAfter]
 
@@ -1062,7 +1066,8 @@ def main():
     mergeBeforeComp = 'false'
     outComp = 'false'
     createVTStat = 'false'
-    vtSchemas = None 
+    vtSchemas = None
+    ignore2ndMon = 'true'   #by default we ignore the secondary monitoring virtual tables
     minRetainedIniDays = "-1" #days
     file_system = "" # by default check all file systems with  df -h
     flag_file = ""    #default: no configuration input file
@@ -1205,6 +1210,8 @@ def main():
                         createVTStat = flagValue
                     if firstWord == '-vl':
                         vtSchemas = [x for x in flagValue.split(',')]
+                    if firstWord == '-vr':
+                        ignore2ndMon = flagValue
                     if firstWord == '-ir':
                         minRetainedIniDays = flagValue
                     if firstWord == '-es':
@@ -1341,6 +1348,8 @@ def main():
         createVTStat = sys.argv[sys.argv.index('-vs') + 1]
     if '-vl' in sys.argv:
         vtSchemas = [x for x in sys.argv[  sys.argv.index('-vl') + 1   ].split(',')]
+    if '-vr' in sys.argv:
+        ignore2ndMon = sys.argv[sys.argv.index('-vr') + 1]
     if '-ir' in sys.argv:
         minRetainedIniDays = sys.argv[sys.argv.index('-ir') + 1]
     if '-es' in sys.argv:
@@ -1589,6 +1598,8 @@ def main():
     createVTStat = checkAndConvertBooleanFlag(createVTStat, "-vs", logman)
     ### vtSchemas, -vl
     #Nothing to check here, will check later if all schemas exist
+    ### ignore2ndMon, -vr
+    ignore2ndMon = checkAndConvertBooleanFlag(ignore2ndMon, "-vr", logman)
     ### minRetainedIniDays, -ir
     if not is_integer(minRetainedIniDays):
         log("INPUT ERROR: -ir must be an integer. Please see --help for more information.", logman)
@@ -1805,7 +1816,7 @@ def main():
                 else:
                     log("    (Compression re-optimization was not done since at least one flag in each of the three compression flag groups was negative (or not specified))", logman)
                 if createVTStat:
-                    [nVTs, nVTsOptimized] = create_vt_statistics(vtSchemas, sqlman, logman)
+                    [nVTs, nVTsOptimized] = create_vt_statistics(vtSchemas, ignore2ndMon, sqlman, logman)
                     logmessage = "Optimization statistics was created for "+str(nVTsOptimized)+" virtual tables (in total there are "+str(nVTs)+" virtual tables)" 
                     log(logmessage, logman)
                     emailmessage += logmessage+"\n"
