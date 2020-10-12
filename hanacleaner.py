@@ -90,6 +90,9 @@ def printHelp():
     print("         ----  AUDIT LOG  ----                                                                                                     ")
     print(" -ur     retention days for audit log table [days], audit log content older than these number of days is removed,                  ")
     print("         default: -1 (not used)                                                                                                    ")
+    print("         ----  PENDING EMAILS  ----                                                                                                ")
+    print(" -pe     retention days for pending e-mails [days], pending statistics server e-mail notifications older than these number of      ")
+    print("         days are removed, default: -1 (not used)            (requires SELECT and DELETE on the _SYS_STATISTICS schema)            ")
     print("         ----  DATA VOLUMES FRAGMENTATION  ----                                                                                    ")
     print(" -fl     fragmentation limit [%], maximum fragmentation of data volume files, of any service, before defragmentation of that       ")
     print("         service is started: ALTER SYSTEM RECLAIM DATAVOLUME '<host>:<port>’ 120 DEFRAGMENT,        default: -1 (not used)         ")
@@ -371,7 +374,7 @@ def is_secondary(logman):
     return result 
 
 def checkIfAcceptedFlag(word):
-    if not word in ["-h", "--help", "-d", "--disclaimer", "-ff", "-be", "-bd", "-bb", "-bo", "-br", "-tc", "-tf", "-to", "-td", "-dr", "-gr", "-gd", "-gw", "-gm", "-zb", "-zp", "-zl", "-zo", "-zk", "-ar", "-kr", "-ao", "-ad", "-om", "-oo", "-lr", "-eh", "-eu", "-ur", "-fl", "-fo", "-rc", "-ro", "-cc", "-ce", "-cr", "-cs", "-cd", "-cq", "-cu", "-cb", "-cp", "-cm", "-co", "-vs", "-vr", "-vl", "-ir", "-es", "-os", "-op", "-of", "-or", "-oi", "-fs", "-if", "-df", "-hci", "-so", "-ssl", "-vlh", "-k", "-dbs", "-en"]:
+    if not word in ["-h", "--help", "-d", "--disclaimer", "-ff", "-be", "-bd", "-bb", "-bo", "-br", "-tc", "-tf", "-to", "-td", "-dr", "-gr", "-gd", "-gw", "-gm", "-zb", "-zp", "-zl", "-zo", "-zk", "-ar", "-kr", "-ao", "-ad", "-om", "-oo", "-lr", "-eh", "-eu", "-ur", "-pe", "-fl", "-fo", "-rc", "-ro", "-cc", "-ce", "-cr", "-cs", "-cd", "-cq", "-cu", "-cb", "-cp", "-cm", "-co", "-vs", "-vr", "-vl", "-ir", "-es", "-os", "-op", "-of", "-or", "-oi", "-fs", "-if", "-df", "-hci", "-so", "-ssl", "-vlh", "-k", "-dbs", "-en"]:
         print "INPUT ERROR: ", word, " is not one of the accepted input flags. Please see --help for more information."
         os._exit(1)
 
@@ -773,12 +776,24 @@ def clean_audit_logs(retainedAuditLogDays, sqlman, logman):  # for this, both Au
     oldestRetainedAuditContentDate = datetime.now() + timedelta(days = -int(retainedAuditLogDays))
     sql = "ALTER SYSTEM CLEAR AUDIT LOG UNTIL '"+oldestRetainedAuditContentDate.strftime('%Y-%m-%d')+" "+datetime.now().strftime("%H:%M:%S")+"'" 
     errorlog = "\nERROR: The user represented by the key "+sqlman.key+" could not clear traces. \nOne possible reason for this is insufficient privilege, \ne.g. lack of the system privilege AUDIT ADMIN and/or AUDIT OPERATOR.\n"
-    errorlog += "If there is another error (i.e. not insufficient privilege) then please try to execute \n"+sql+"\nin e.g. the SQL editor in SAP HANA Studio. If you get the same error then this has nothing to do with hanacleaner"
+    errorlog += "If there is another error (i.e. not insufficient privilege) then please try to execute \n"+sql+"\nin e.g. the SQL editor in SAP HANA Studio. If you get the same error then this has nothing to do with hanacleaner."
     try_execute_sql(sql, errorlog, sqlman, logman)                     
     nbrLogsAfter = int(subprocess.check_output(sqlman.hdbsql_jAQaxU + " \"SELECT COUNT(*) FROM sys.audit_log\"", shell=True).strip(' '))
     return nbrLogsBefore - nbrLogsAfter    
         
-    
+
+def clean_pending_emails(pendingEmailsDays, sqlman, logman):
+    nbrEmailsBefore = int(subprocess.check_output(sqlman.hdbsql_jAQaxU + " \"SELECT COUNT(*) FROM _SYS_STATISTICS.STATISTICS_EMAIL_PROCESSING\"", shell=True).strip(' '))
+    if nbrEmailsBefore == 0:
+        return 0
+    sql = "DELETE FROM _SYS_STATISTICS.STATISTICS_EMAIL_PROCESSING WHERE SECONDS_BETWEEN(SNAPSHOT_ID, CURRENT_TIMESTAMP) > "+pendingEmailsDays+" * 86400"
+    errorlog = "\nERROR: The user represented by the key "+sqlman.key+" could not delete pending emails. \nOne possible reason for this is insufficient privilege, \ne.g. lack of the object privilege DELETE on the _SYS_STATISTICS schema.\n"
+    errorlog += "If there is another error (i.e. not insufficient privilege) then please try to execute \n"+sql+"\nin e.g. the SQL editor in SAP HANA Studio. If you get the same error then this has nothing to do with hanacleaner."
+    try_execute_sql(sql, errorlog, sqlman, logman)                     
+    nbrEmailsAfter = int(subprocess.check_output(sqlman.hdbsql_jAQaxU + " \"SELECT COUNT(*) FROM _SYS_STATISTICS.STATISTICS_EMAIL_PROCESSING\"", shell=True).strip(' '))
+    return nbrEmailsBefore - nbrEmailsAfter    
+          
+
 def defragment(fragmentationLimit, outputFragmentation, sqlman, logman):
     fragPerPortBefore = subprocess.check_output(sqlman.hdbsql_jAaxU + " \"SELECT HOST, PORT, USED_SIZE, TOTAL_SIZE from SYS.M_VOLUME_FILES WHERE FILE_TYPE = 'DATA'\" ", shell=True).splitlines(1)
     fragPerPortBefore = [port.strip('\n').strip('|').split('|') for port in fragPerPortBefore]    
@@ -1049,6 +1064,7 @@ def main():
     minRetainedDaysForHandledEvents = "-1" #days
     minRetainedDaysForEvents = "-1" #days
     retainedAuditLogDays = "-1"
+    pendingEmailsDays = "-1"
     fragmentationLimit = "-1" # percent
     outputFragmentation = "false"
     hanacleaner_interval = "-1"
@@ -1176,6 +1192,8 @@ def main():
                         minRetainedDaysForEvents = flagValue
                     if firstWord == '-ur':
                         retainedAuditLogDays = flagValue
+                    if firstWord == '-pe':
+                        pendingEmailsDays = flagValue
                     if firstWord == '-fl':
                         fragmentationLimit = flagValue
                     if firstWord == '-fo':
@@ -1313,7 +1331,9 @@ def main():
     if '-eu' in sys.argv:
         minRetainedDaysForEvents = sys.argv[sys.argv.index('-eu') + 1]
     if '-ur' in sys.argv:
-        retainedAuditLogDays = sys.argv[sys.argv.index('-ur') + 1]        
+        retainedAuditLogDays = sys.argv[sys.argv.index('-ur') + 1]  
+    if '-pe' in sys.argv:
+        pendingEmailsDays = sys.argv[sys.argv.index('-pe') + 1]
     if '-fl' in sys.argv:
         fragmentationLimit = sys.argv[sys.argv.index('-fl') + 1]
     if '-fo' in sys.argv:
@@ -1536,7 +1556,11 @@ def main():
     ### retainedAuditLogDays, -ur
     if not is_integer(retainedAuditLogDays):
         log("INPUT ERROR: -ur must be an integer. Please see --help for more information.", logman)
-        os._exit(1)        
+        os._exit(1)    
+    ### pendingEmailsDays, -pe
+    if not is_integer(pendingEmailsDays):
+        log("INPUT ERROR: -pe must be an integer. Please see --help for more information.", logman)
+        os._exit(1)
     ### fragmentationLimit, -fl
     if not is_integer(fragmentationLimit):
         log("INPUT ERROR: -fl must be an integer. Please see --help for more information.", logman)
@@ -1783,7 +1807,14 @@ def main():
                     log(logmessage, logman)
                     emailmessage += logmessage+"\n"
                 else:
-                    log("    (Cleaning audit logs was not done since -ur was -1 (or not specified))", logman)                
+                    log("    (Cleaning audit logs was not done since -ur was -1 (or not specified))", logman)  
+                if pendingEmailsDays != "-1":
+                    nCleaned = clean_pending_emails(pendingEmailsDays, sqlman, logman)
+                    logmessage = str(nCleaned)+" pending statistics server email notifications were removed"
+                    log(logmessage, logman)
+                    emailmessage += logmessage+"\n"
+                else:
+                    log("    (Cleaning of pending emails was not done since -pe was -1 (or not specified))", logman)  
                 if fragmentationLimit >= 0:
                     defragmentedPerPort = defragment(fragmentationLimit, outputFragmentation, sqlman, logman)
                     if defragmentedPerPort:
