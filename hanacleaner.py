@@ -521,6 +521,10 @@ def clean_trace_files(retainedTraceContentDays, retainedTraceFilesDays, outputTr
 
 def clean_dumps(retainedDumpDays, sqlman, logman):
     path = cdalias('cdglo')+"/sapcontrol/snapshots/" 
+
+    #TEMP
+    print 'path:', path 
+
     with open(os.devnull, 'w') as devnull:
         nbrDumpsBefore = int(subprocess.check_output("ls "+path+"fullsysteminfodump* | wc -l", shell=True, stderr=devnull).strip(' ')) 
         if not nbrDumpsBefore:
@@ -978,7 +982,7 @@ def create_vt_statistics(vtSchemas, ignore2ndMon, sqlman, logman):  #SAP Note 18
                 errorlog += "\nTry, as the user represented by the key "+sqlman.key+" to simply do  SELECT * FROM "+vt[0]+"."+vt[1]+". If that does not work then it could be that the privileges of source system's technical user (used in the SDA setup) is not sufficient.\n"
                 errorlog += "If there is another error (i.e. not insufficient privilege) then please try to execute \n"+sql+"\nin e.g. the SQL editor in SAP HANA Studio. If you get the same error then this has nothing to do with hanacleaner\n"
                 errorlog += "It could be that the respective ODBC driver was not properly set up. Please then follow the SAP HANA Administration Guide."
-                try_execute_sql(sql, errorlog, sqlman, logman)  
+                try_execute_sql(sql, errorlog, sqlman, logman, exit_on_fail = False)  
     nVTsWithoutStatAfter = int(subprocess.check_output(sqlman.hdbsql_jAQaxU + " \"select COUNT(*) from SYS.VIRTUAL_TABLES where TABLE_NAME NOT IN (select distinct DATA_SOURCE_OBJECT_NAME from SYS.DATA_STATISTICS)\"", shell=True).strip(' '))
     return [nVTs, nVTsWithoutStatBefore - nVTsWithoutStatAfter]
 
