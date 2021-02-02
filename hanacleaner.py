@@ -13,6 +13,8 @@ def printHelp():
     print("                                                                                                                                   ")
     print("INPUT ARGUMENTS:                                                                                                                   ")
     print("         ----  BACKUP ENTRIES in BACKUP CATALOG (and possibly BACKUPS)  ----                                                       ")
+    print("         Note: In case you use Azure Backup you might want to check out this first                                                 ")
+    print("         https://answers.sap.com/questions/13241352/manage-or-clean-up-the-hana-catalog-for-a-database.html                        ")
     print(" -be     minimum retained number of data backup (i.e. complete data backups and data snapshots) entries in the catalog, this       ") 
     print("         number of entries of data backups will remain in the backup catalog, all older log backup entries will also be removed    ")
     print("         with BACKUP CATALOG DELETE BACKUP_ID <id> (see SQL reference for more info) default: -1 (not used)                        ")
