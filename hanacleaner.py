@@ -271,6 +271,8 @@ class LogManager:
     def __init__(self, log_path, out_prefix, print_to_std):
         self.path = log_path
         self.out_prefix = out_prefix
+        if self.out_prefix:
+            self.out_prefix = self.out_prefix + "_"
         self.print_to_std = print_to_std
         
 class EmailSender:
@@ -299,7 +301,7 @@ def log(message, logmanager):
         print message
     if logmanager.path:
         file_name = "hanacleanerlog"
-        logfile = open(logmanager.path+"/"+file_name+"_"+logmanager.out_prefix+"_"+datetime.now().strftime("%Y-%m-%d"+".txt").replace(" ", "_"), "a")
+        logfile = open(logmanager.path+"/"+file_name+"_"+logmanager.out_prefix+datetime.now().strftime("%Y-%m-%d"+".txt").replace(" ", "_"), "a")
         logfile.write(message+"\n")   
         logfile.flush()
         logfile.close()
