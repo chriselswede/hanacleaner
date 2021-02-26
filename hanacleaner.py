@@ -127,13 +127,24 @@ def printHelp():
     print(" -cp     per partition [true/false], switch to consider flags above per partition instead of per column, default: false            ")
     print(" -cm     merge before compress [true/false], switch to perform a delta merge on the tables before compression, default: false      ")
     print(" -co     output compressed tables [true/false], switch to print all tables that were compression re-optimized, default: false      ")
-    print("         ---- VIRTUAL TABLE STATISTICS ----                                                                                        ")
+    print("         ---- VIRTUAL TABLE STATISTICS CREATION ----                                                                               ")
     print(" -vs     create statistics for virtual tables [true/false], switch to create optimization statistics for those virtual tables      ")
     print("         that are missing statistics according to SAP Note 1872652 (Note: could cause expenive operations),    default: false      ")
+    print(" -vt     default statistics type [HISTOGRAM/SIMPLE/TOPK/SKETCH/SAMPLE/RECORD_COUNT], type of data statistics object                ")
+    print("         default: HISTOGRAM                                                                                                        ")
+    print(" -vn     max number of rows for defult type [number rows], if the VT has less or equal number of rows specified by -vn the default ")
+    print("         statistics type, defined by -vt, is used, else the type defined by -vtt is used,           default: -1 (not considered)   ")
+    print(" -vtt    large statistics type [HISTOGRAM/SIMPLE/TOPK/SKETCH/SAMPLE/RECORD_COUNT], type of data statistics object used if the VT   ")
+    print("         has more rows than specified by -vn and the database is HANA                                    default: SIMPLE           ")
+    print(" -vto    statistics type for other DBs [HISTOGRAM/SIMPLE/TOPK/SKETCH/SAMPLE/RECORD_COUNT], type of data statistics object if the   ")
+    print("         remote database is not HANA                                                                 default: "" (not considered)  ") 
     print(" -vl     schema list of virtual tables, if you only want tables in some schemas to be considered for the creation of statistics    ")
     print("         provide here a comma seperated list of those schemas, default '' (all schemas will be considered)                         ")
     print(" -vr     ignore secondary monitoring tables [true/false], normaly statistics for the the virtual tables in the                     ")
     print("         _SYS_SR_SITE* schemas are not needed to be created nor updated, so they are by default ignored, default: true             ")
+    print("         ---- VIRTUAL TABLE STATISTICS REFRESH ----                                                                                ")
+    print(" -vnr    refresh age of VT statistics [number days > 0], if the VT statistics of a table is older than this number of days it will ")
+    print("         be refreshed      (Note: -vl and -vr holds also for refresh)                                   default: -1 (no refresh)   ")
     print("         ---- INIFILE CONTENT HISTORY ----                                                                                         ")
     print(" -ir     inifile content history retention [days], deletes older inifile content history, default: -1 (not used) (should > 1 year) ")
     print("         ---- INTERVALL  ----                                                                                                      ")
@@ -378,7 +389,7 @@ def is_secondary(logman):
     return result 
 
 def checkIfAcceptedFlag(word):
-    if not word in ["-h", "--help", "-d", "--disclaimer", "-ff", "-be", "-bd", "-bb", "-bo", "-br", "-tc", "-tf", "-to", "-td", "-dr", "-gr", "-gd", "-gw", "-gm", "-zb", "-zp", "-zl", "-zo", "-zk", "-ar", "-kr", "-ao", "-ad", "-om", "-oo", "-lr", "-eh", "-eu", "-ur", "-pe", "-fl", "-fo", "-rc", "-ro", "-cc", "-ce", "-cr", "-cs", "-cd", "-cq", "-cu", "-cb", "-cp", "-cm", "-co", "-vs", "-vr", "-vl", "-ir", "-es", "-os", "-op", "-of", "-or", "-oi", "-fs", "-if", "-df", "-hci", "-so", "-ssl", "-vlh", "-k", "-dbs", "-en"]:
+    if not word in ["-h", "--help", "-d", "--disclaimer", "-ff", "-be", "-bd", "-bb", "-bo", "-br", "-tc", "-tf", "-to", "-td", "-dr", "-gr", "-gd", "-gw", "-gm", "-zb", "-zp", "-zl", "-zo", "-zk", "-ar", "-kr", "-ao", "-ad", "-om", "-oo", "-lr", "-eh", "-eu", "-ur", "-pe", "-fl", "-fo", "-rc", "-ro", "-cc", "-ce", "-cr", "-cs", "-cd", "-cq", "-cu", "-cb", "-cp", "-cm", "-co", "-vs", "-vt", "-vn", "-vtt", "-vto", "-vr", "-vnr", "-vl", "-ir", "-es", "-os", "-op", "-of", "-or", "-oi", "-fs", "-if", "-df", "-hci", "-so", "-ssl", "-vlh", "-k", "-dbs", "-en"]:
         print "INPUT ERROR: ", word, " is not one of the accepted input flags. Please see --help for more information."
         os._exit(1)
 
@@ -525,10 +536,6 @@ def clean_trace_files(retainedTraceContentDays, retainedTraceFilesDays, outputTr
 
 def clean_dumps(retainedDumpDays, sqlman, logman):
     path = cdalias('cdglo')+"/sapcontrol/snapshots/" 
-
-    #TEMP
-    print 'path:', path 
-
     with open(os.devnull, 'w') as devnull:
         nbrDumpsBefore = int(subprocess.check_output("ls "+path+"fullsysteminfodump* | wc -l", shell=True, stderr=devnull).strip(' ')) 
         if not nbrDumpsBefore:
@@ -620,7 +627,7 @@ def clean_objhist(objHistMaxSize, outputObjHist, sqlman, logman):
         objHistSizeBefore = int(subprocess.check_output(sqlman.hdbsql_jAQaxU + " \"select disk_size from SYS.M_TABLE_PERSISTENCE_LOCATION_STATISTICS where table_name = 'OBJECT_HISTORY'\"", shell=True).strip(' '))
     except: 
         log("\nERROR: The user represented by the key "+sqlman.key+" could not find size of object history. \nOne possible reason for this is insufficient privilege, \ne.g. lack of the object privilege SELECT on the table SYS.M_TABLE_PERSISTENCE_LOCATION_STATISTICS.\n", logman)
-        os._exittr445(1)  
+        os._exit(1)  
     if objHistSizeBefore > objHistMaxSize*1000000:   #mb --> b 
         sql = "DELETE FROM _SYS_REPO.OBJECT_HISTORY WHERE (package_id, object_name, object_suffix, version_id) NOT IN (SELECT package_id, object_name, object_suffix, MAX(version_id) AS maxvid from _SYS_REPO.OBJECT_HISTORY GROUP BY package_id, object_name, object_suffix ORDER BY package_id, object_name, object_suffix)"
         errorlog = "\nERROR: The user represented by the key "+sqlman.key+" could not clean the object history. \nOne possible reason for this is insufficient privilege, \ne.g. lack of the object privilege DELETE on the table _SYS_REPO.OBJECT_HISTORY.\n"
@@ -672,7 +679,12 @@ def find_all(name, path, zipLinks):
             result.append(os.path.join(root, name))
     return result
     
-    
+def getNbrRows(schema, table, sqlman):
+    return int(subprocess.check_output(sqlman.hdbsql_jAQaxU + " \"SELECT COUNT(*) FROM "+schema+"."+table+" \"", shell=True).strip(' '))
+
+def getAdapterName(schema, table, sqlman):
+    return subprocess.check_output(sqlman.hdbsql_jAQaxU + " \"SELECT R.ADAPTER_NAME FROM SYS.REMOTE_SOURCES R JOIN SYS.VIRTUAL_TABLES V ON R.REMOTE_SOURCE_NAME = V.REMOTE_SOURCE_NAME WHERE V.SCHEMA_NAME = '"+schema+"' and TABLE_NAME = '"+table+"'\"", shell=True).strip(' ')
+
 def zipBackupLogs(zipBackupLogsSizeLimit, zipBackupPath, zipLinks, zipOut, zipKeep, sqlman, logman):
     backup_log_pathes = find_all("backup.log", zipBackupPath, zipLinks)
     backint_log_pathes = find_all("backint.log", zipBackupPath, zipLinks)
@@ -966,8 +978,8 @@ def force_compression(maxRawComp, maxEstComp, maxRowComp, maxMemComp, minDistCom
         log("\n", logman)
     return [len(tablesToCompress), failed]
     
-def create_vt_statistics(vtSchemas, ignore2ndMon, sqlman, logman):  #SAP Note 1872652: Creating statistics on a virtual table can be an expensive operation. 
-    #Default statistics type: HISTOGRAM --> Creates a data statistics object that helps the query optimizer estimate the data distribution in a single-column data source --> Here we create a HISTOGRAM for ALL COLUMNS of the Virtual Tables
+def create_vt_statistics(vtSchemas, defaultVTStatType, maxRowsForDefaultVT, largeVTStatType, otherDBVTStatType, ignore2ndMon, sqlman, logman):  #SAP Note 1872652: Creating statistics on a virtual table can be an expensive operation. 
+    #Default statistics type: HISTOGRAM --> Creates a data statistics object that helps the query optimizer estimate the data distribution in a single-column data source
     nVTs = int(subprocess.check_output(sqlman.hdbsql_jAQaxU + " \"select count(*) from SYS.VIRTUAL_TABLES\"", shell=True).strip(' '))
     nVTsWithoutStatBefore = int(subprocess.check_output(sqlman.hdbsql_jAQaxU + " \"select COUNT(*) from SYS.VIRTUAL_TABLES where TABLE_NAME NOT IN (select distinct DATA_SOURCE_OBJECT_NAME from SYS.DATA_STATISTICS)\"", shell=True).strip(' '))
     if not nVTsWithoutStatBefore:
@@ -978,10 +990,15 @@ def create_vt_statistics(vtSchemas, ignore2ndMon, sqlman, logman):  #SAP Note 18
     for vt in listOfVTsWithoutStat: 
         if not (ignore2ndMon and "_SYS_SR_SITE" in vt[0]):  #if ignore2ndMon (default true) then do not create statistics for the virtual tables in the _SYS_SR_SITE* schema
             if not vtSchemas or vt[0] in vtSchemas:  #if schemas for virtual tables are provided, then only consider these schemas for creating statistics
+                statType = defaultVTStatType
+                if maxRowsForDefaultVT > 0:
+                    statType = defaultVTStatType if getNbrRows(vt[0], vt[1], sqlman) <= maxRowsForDefaultVT else largeVTStatType
+                if otherDBVTStatType:
+                    statType = statType if "hana" in getAdapterName(vt[0], vt[1], sqlman) else otherDBVTStatType
                 columns = subprocess.check_output(sqlman.hdbsql_jAaxU + " \"select column_name from PUBLIC.TABLE_COLUMNS where table_name = '"+vt[1]+"' and schema_name = '"+vt[0]+"'\"", shell=True).splitlines(1)
                 columns =[col.strip('\n').strip('|').strip(' ') for col in columns]
-                columns = '\\\", \\\"'.join(columns)                                                          # necessary for columns with mixed letter case
-                sql = 'CREATE STATISTICS ON \\\"'+vt[0]+'\\\".\\\"'+vt[1]+'\\\" (\\\"'+columns+'\\\")'        # necessary for tables starting with / and for tables with mixed letter case 
+                columns = '\\\", \\\"'.join(columns)                                                                                  # necessary for columns with mixed letter case
+                sql = 'CREATE STATISTICS ON \\\"'+vt[0]+'\\\".\\\"'+vt[1]+'\\\" (\\\"'+columns+'\\\") TYPE '+statType                 # necessary for tables starting with / and for tables with mixed letter case 
                 errorlog = "\nERROR: The user represented by the key "+sqlman.key+" could not create statistics on "+vt[0]+"."+vt[1]+". \nOne possible reason for this is insufficient privilege\n"
                 errorlog += "\nTry, as the user represented by the key "+sqlman.key+" to simply do  SELECT * FROM "+vt[0]+"."+vt[1]+". If that does not work then it could be that the privileges of source system's technical user (used in the SDA setup) is not sufficient.\n"
                 errorlog += "If there is another error (i.e. not insufficient privilege) then please try to execute \n"+sql+"\nin e.g. the SQL editor in SAP HANA Studio. If you get the same error then this has nothing to do with hanacleaner\n"
@@ -989,6 +1006,26 @@ def create_vt_statistics(vtSchemas, ignore2ndMon, sqlman, logman):  #SAP Note 18
                 try_execute_sql(sql, errorlog, sqlman, logman, exit_on_fail = False)  
     nVTsWithoutStatAfter = int(subprocess.check_output(sqlman.hdbsql_jAQaxU + " \"select COUNT(*) from SYS.VIRTUAL_TABLES where TABLE_NAME NOT IN (select distinct DATA_SOURCE_OBJECT_NAME from SYS.DATA_STATISTICS)\"", shell=True).strip(' '))
     return [nVTs, nVTsWithoutStatBefore - nVTsWithoutStatAfter]
+
+def refresh_statistics(vtSchemas, refreshAge, ignore2ndMon, sqlman, logman):
+    nDSs = int(subprocess.check_output(sqlman.hdbsql_jAQaxU + " \"SELECT COUNT(*) FROM SYS.DATA_STATISTICS\"", shell=True).strip(' '))
+    nDSToRefresh_before = int(subprocess.check_output(sqlman.hdbsql_jAQaxU + " \"SELECT COUNT(*) FROM SYS.DATA_STATISTICS WHERE LAST_REFRESH_TIME < ADD_DAYS(CURRENT_TIMESTAMP, -"+str(refreshAge)+")\"", shell=True).strip(' '))
+    if not nDSToRefresh_before:
+        return [nDSs, 0]
+    listOfDSsToRefresh = subprocess.check_output(sqlman.hdbsql_jAaxU + " \"select DATA_STATISTICS_SCHEMA_NAME, DATA_STATISTICS_NAME FROM SYS.DATA_STATISTICS WHERE LAST_REFRESH_TIME < ADD_DAYS(CURRENT_TIMESTAMP, -"+str(refreshAge)+")\"", shell=True).splitlines(1)
+    listOfDSsToRefresh = [ds.strip('\n').strip('|').split('|') for ds in listOfDSsToRefresh]    
+    listOfDSsToRefresh = [[elem.strip(' ') for elem in ds] for ds in listOfDSsToRefresh] 
+    for ds in listOfDSsToRefresh: 
+        if not (ignore2ndMon and "_SYS_SR_SITE" in ds[0]):  #if ignore2ndMon (default true) then do not refresh statistics for the virtual tables in the _SYS_SR_SITE* schema
+            if not vtSchemas or ds[0] in vtSchemas:  #if schemas for virtual tables are provided, then only consider these schemas for refreshing statistics
+                sql = 'REFRESH STATISTICS \\\"'+ds[0]+'\\\".\\\"'+ds[1]+'\\\"'                 # necessary for tables starting with / and for tables with mixed letter case 
+                errorlog = "\nERROR: The user represented by the key "+sqlman.key+" could not refresh statistics on "+ds[0]+"."+ds[1]+". \nOne possible reason for this is insufficient privilege\n"
+                errorlog += "\nTry, as the user represented by the key "+sqlman.key+" to simply do  SELECT * FROM "+ds[0]+"."+ds[1]+". If that does not work then it could be that the privileges of source system's technical user (used in the SDA setup) is not sufficient.\n"
+                errorlog += "If there is another error (i.e. not insufficient privilege) then please try to execute \n"+sql+"\nin e.g. the SQL editor in SAP HANA Studio. If you get the same error then this has nothing to do with hanacleaner\n"
+                errorlog += "It could be that the respective ODBC driver was not properly set up. Please then follow the SAP HANA Administration Guide."
+                try_execute_sql(sql, errorlog, sqlman, logman, exit_on_fail = False)  
+    nDSToRefresh_after = int(subprocess.check_output(sqlman.hdbsql_jAQaxU + " \"SELECT COUNT(*) FROM SYS.DATA_STATISTICS WHERE LAST_REFRESH_TIME < ADD_DAYS(CURRENT_TIMESTAMP, -"+str(refreshAge)+")\"", shell=True).strip(' '))
+    return [nDSs, nDSToRefresh_after - nDSToRefresh_before]
 
 def clean_output(minRetainedOutputDays, sqlman, logman):
     path = logman.path
@@ -1090,8 +1127,13 @@ def main():
     mergeBeforeComp = 'false'
     outComp = 'false'
     createVTStat = 'false'
+    defaultVTStatType = 'HISTOGRAM'
+    maxRowsForDefaultVT = '-1'
+    largeVTStatType = 'SIMPLE'
+    otherDBVTStatType = ''
     vtSchemas = None
     ignore2ndMon = 'true'   #by default we ignore the secondary monitoring virtual tables
+    refreshAge = '-1'
     minRetainedIniDays = "-1" #days
     file_system = "" # by default check all file systems with  df -h
     flag_file = ""    #default: no configuration input file
@@ -1234,10 +1276,20 @@ def main():
                         outComp = flagValue
                     if firstWord == '-vs':
                         createVTStat = flagValue
+                    if firstWord == '-vt':
+                        defaultVTStatType = flagValue
+                    if firstWord == '-vn':
+                        maxRowsForDefaultVT = flagValue
+                    if firstWord == '-vtt':
+                        largeVTStatType = flagValue
+                    if firstWord == '-vto':
+                        otherDBVTStatType = flagValue
                     if firstWord == '-vl':
                         vtSchemas = [x for x in flagValue.split(',')]
                     if firstWord == '-vr':
                         ignore2ndMon = flagValue
+                    if firstWord == '-vnr':
+                        refreshAge = flagValue
                     if firstWord == '-ir':
                         minRetainedIniDays = flagValue
                     if firstWord == '-es':
@@ -1374,10 +1426,20 @@ def main():
         outComp = sys.argv[sys.argv.index('-co') + 1]
     if '-vs' in sys.argv:
         createVTStat = sys.argv[sys.argv.index('-vs') + 1]
+    if '-vt' in sys.argv:
+        defaultVTStatType = sys.argv[sys.argv.index('-vt') + 1]    
+    if '-vn' in sys.argv:
+        maxRowsForDefaultVT = sys.argv[sys.argv.index('-vn') + 1] 
+    if '-vtt' in sys.argv:
+        largeVTStatType = sys.argv[sys.argv.index('-vtt') + 1]  
+    if '-vto' in sys.argv:
+        otherDBVTStatType = sys.argv[sys.argv.index('-vto') + 1]  
     if '-vl' in sys.argv:
         vtSchemas = [x for x in sys.argv[  sys.argv.index('-vl') + 1   ].split(',')]
     if '-vr' in sys.argv:
         ignore2ndMon = sys.argv[sys.argv.index('-vr') + 1]
+    if '-vnr' in sys.argv:
+        refreshAge = sys.argv[sys.argv.index('-vnr') + 1] 
     if '-ir' in sys.argv:
         minRetainedIniDays = sys.argv[sys.argv.index('-ir') + 1]
     if '-es' in sys.argv:
@@ -1628,10 +1690,38 @@ def main():
     outComp = checkAndConvertBooleanFlag(outComp, "-co", logman)
     ### createVTStat, -vs
     createVTStat = checkAndConvertBooleanFlag(createVTStat, "-vs", logman)
+    ### defaultVTStatType, -vt
+    if defaultVTStatType not in ['HISTOGRAM', 'SIMPLE', 'TOPK', 'SKETCH', 'SAMPLE', 'RECORD_COUNT']:
+        log("INPUT ERROR: Wrong input option of -vt. Please see --help for more information.", logman)
+        os._exit(1)
+    if defaultVTStatType == 'RECORD_COUNT':
+        defaultVTStatType = 'RECORD COUNT'
+    ### maxRowsForDefaultVT, -vn
+    if not is_integer(maxRowsForDefaultVT):
+        log("INPUT ERROR: -vn must be an integer. Please see --help for more information.", logman)
+        os._exit(1)
+    maxRowsForDefaultVT = int(maxRowsForDefaultVT)
+    ### largeVTStatType, -vtt
+    if largeVTStatType not in ['HISTOGRAM', 'SIMPLE', 'TOPK', 'SKETCH', 'SAMPLE', 'RECORD_COUNT']:
+        log("INPUT ERROR: Wrong input option of -vtt. Please see --help for more information.", logman)
+        os._exit(1)
+    if largeVTStatType == 'RECORD_COUNT':
+        largeVTStatType = 'RECORD COUNT'
+    ### otherDBVTStatType, -vto
+    if otherDBVTStatType not in ['HISTOGRAM', 'SIMPLE', 'TOPK', 'SKETCH', 'SAMPLE', 'RECORD_COUNT', '']:
+        log("INPUT ERROR: Wrong input option of -vto. Please see --help for more information.", logman)
+        os._exit(1)
+    if otherDBVTStatType == 'RECORD_COUNT':
+        otherDBVTStatType = 'RECORD COUNT'
     ### vtSchemas, -vl
     #Nothing to check here, will check later if all schemas exist
     ### ignore2ndMon, -vr
     ignore2ndMon = checkAndConvertBooleanFlag(ignore2ndMon, "-vr", logman)
+    ### refreshAge, -vnr
+    if not is_integer(refreshAge):
+        log("INPUT ERROR: -vnr must be an integer. Please see --help for more information.", logman)
+        os._exit(1)
+    refreshAge = int(refreshAge)
     ### minRetainedIniDays, -ir
     if not is_integer(minRetainedIniDays):
         log("INPUT ERROR: -ir must be an integer. Please see --help for more information.", logman)
@@ -1855,12 +1945,19 @@ def main():
                 else:
                     log("    (Compression re-optimization was not done since at least one flag in each of the three compression flag groups was negative (or not specified))", logman)
                 if createVTStat:
-                    [nVTs, nVTsOptimized] = create_vt_statistics(vtSchemas, ignore2ndMon, sqlman, logman)
+                    [nVTs, nVTsOptimized] = create_vt_statistics(vtSchemas, defaultVTStatType, maxRowsForDefaultVT, largeVTStatType, otherDBVTStatType, ignore2ndMon, sqlman, logman)
                     logmessage = "Optimization statistics was created for "+str(nVTsOptimized)+" virtual tables (in total there are "+str(nVTs)+" virtual tables)" 
                     log(logmessage, logman)
                     emailmessage += logmessage+"\n"
                 else:
                     log("    (Creation of optimization statistics for virtual tables was not done since -vs was false (or not specified))", logman)
+                if refreshAge > 0:
+                    [nDSs, nDSsRefreshed] = refresh_statistics(vtSchemas, refreshAge, ignore2ndMon, sqlman, logman)
+                    logmessage = "Refresh of statistics was done for "+str(nDSsRefreshed)+" data statistics (in total there are "+str(nDSs)+" data statistics)" 
+                    log(logmessage, logman)
+                    emailmessage += logmessage+"\n"
+                else:
+                    log("    (Refresh of optimization statistics for virtual tables was not done since -vnr was not more than 0 (or not specified))", logman)
                 if minRetainedIniDays >= 0:
                     nCleaned = clean_ini(minRetainedIniDays, version, revision, mrevision, sqlman, logman)
                     logmessage = str(nCleaned)+" inifile history contents were removed" 
