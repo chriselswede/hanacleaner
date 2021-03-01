@@ -139,7 +139,7 @@ def printHelp():
     print(" -vto    statistics type for other DBs [HISTOGRAM/SIMPLE/TOPK/SKETCH/SAMPLE/RECORD_COUNT], type of data statistics object if the   ")
     print("         remote database is not HANA                                                                 default: "" (not considered)  ") 
     print(" -vl     schema list of virtual tables, if you only want tables in some schemas to be considered for the creation of statistics    ")
-    print("         provide here a comma seperated list of those schemas, default '' (all schemas will be considered)                         ")
+    print("         provide here a comma separated list of those schemas, default '' (all schemas will be considered)                         ")
     print(" -vr     ignore secondary monitoring tables [true/false], normaly statistics for the the virtual tables in the                     ")
     print("         _SYS_SR_SITE* schemas are not needed to be created nor updated, so they are by default ignored, default: true             ")
     print("         ---- VIRTUAL TABLE STATISTICS REFRESH ----                                                                                ")
@@ -1826,8 +1826,8 @@ def main():
                     log("VERSION ERROR: -tc is not supported for SAP HANA rev. < 120. (The UNTIL option is new with SPS12.)", logman)
                     os._exit(1)       
                 if zipBackupLogsSizeLimit != -1 and (version >= 2 and revision >= 40):
-                    log("VERSION ERROR: -zb is not supported for SAP HANA 2 rev. >= 40. Instead configure size with parameters, see SAP Note 2797078.", logman)
-                    os._exit(1)     
+                    log("VERSION WARNING: -zb is not supported for SAP HANA 2 rev. >= 40. Instead configure size with parameters, see SAP Note 2797078.", logman)
+                    zipBackupLogsSizeLimit = -1     
                 ###### START ALL HOUSE KEEPING TASKS ########
                 if minRetainedBackups >= 0 or minRetainedDays >= 0:
                     [nCleanedData, nCleanedLog] = clean_backup_catalog(minRetainedBackups, minRetainedDays, deleteBackups, outputCatalog, outputDeletedCatalog, sqlman, logman)
@@ -1863,7 +1863,7 @@ def main():
                     log(logmessage, logman)
                     emailmessage += logmessage+"\n"
                 else:
-                    log("    (Compression of the backup logs was not done since -zb was negative (or not specified))", logman)
+                    log("    (Compression of the backup logs was not done since -zb was negative (or not specified) or this is not more supported for your HANA Version)", logman)
                 if minRetainedAlertDays >= 0:
                     nCleaned = clean_alerts(minRetainedAlertDays, outputAlerts, outputDeletedAlerts, sqlman, logman)
                     logmessage = str(nCleaned)+" alerts were removed"
