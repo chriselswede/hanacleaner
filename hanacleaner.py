@@ -190,6 +190,7 @@ def printHelp():
     print("         Note: It is not possible to use underscore in the user key, e.g. HANA_HOUSEKEEPING is NOT possible                        ")
     print(" -dbs    DB key, this can be a list of databases accessed from the system defined by -k (-k can only be one key if -dbs is used)   ")               
     print("         Note: Users with same name and password have to be maintained in all databases   , default: ''  (not used)                ")
+    print("         Note: if you include %SID, it will automatically be replaced with the actually SID of your system                         ")
     print("         Example:  -k PQLSYSDB -dbs SYSTEMDB, PQL                                                                                  ")
     print("         ---- EMAIL ----                                                                                                           ")
     print(" -en     email notification, <recievers email>,<sender's email>,<mail server>                                                      ") 
@@ -1322,6 +1323,7 @@ def main():
                         dbuserkeys = [x for x in flagValue.split(',')]
                     if firstWord == '-dbs':
                         dbases = [x for x in flagValue.split(',')]
+                        dbases = [p.replace('%SID', SID) for p in dbases]
                     if firstWord == '-en': 
                         email_notif = [x for x in flagValue.split(',')]
 
@@ -1475,6 +1477,7 @@ def main():
         dbuserkeys = [x for x in sys.argv[  sys.argv.index('-k') + 1   ].split(',')]
     if '-dbs' in sys.argv:
         dbases = [x for x in sys.argv[  sys.argv.index('-dbs') + 1   ].split(',')]
+        dbases = [p.replace('%SID', SID) for p in dbases]
     if '-en' in sys.argv:
         email_notif = [x for x in sys.argv[  sys.argv.index('-en') + 1   ].split(',')]
 
