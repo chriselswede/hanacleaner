@@ -1777,7 +1777,7 @@ def main():
                 print "ERROR, the key ", dbuserkey, " is not maintained in hdbuserstore."
                 os._exit(1)
             ENV = key_environment.split('\n')[1].replace('  ENV : ','').replace(';',',').split(',')
-            key_hosts = [env.split(':')[0] for env in ENV] 
+            key_hosts = [env.split(':')[0].split('.')[0] for env in ENV] 
             if not local_host in key_hosts:
                 print "ERROR, local host, ", local_host, ", should be one of the hosts specified for the key, ", dbuserkey, " (in case of virtual, please use -vlh, see --help for more info)"
                 os._exit(1)
