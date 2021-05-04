@@ -657,7 +657,7 @@ def max_filesystem_usage_in_percent(file_system, ignore_filesystems, logman):
                 elif len(words) == 5:
                     filesystem_and_mount = [words[0].strip('\n'), words[4].strip('\n')]
                 else:
-                    log("ERROR, Unexpted number output columns from df -h: \n"+lines, logman)
+                    log("ERROR, Unexpted number output columns from df -h: \n"+line, logman)
                 if len(words) == 6:
                     percentage = int(words[4].strip('%'))
                 if len(words) == 5:
