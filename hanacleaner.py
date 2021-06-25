@@ -30,6 +30,8 @@ def printHelp():
     print(" -bo     output catalog [true/false], displays backup catalog before and after the cleanup, default: false                         ")
     print(" -br     output removed catalog entries [true/false], displays backup catalog entries that were removed, default: false            ")
     print("         Note: Please do not use -bo and -br if your catalog is huge (>10000) entries.                                             ")
+    print(" -bn     output number deleted log backup entries [true/false], prints out how many log backup entries were deleted from the       ")
+    print("         backup catalog, it is only needed to change this to false in case of extremely huge backup catalogs,   default: true      ")
     print("         ----  TRACE FILES  ----                                                                                                   ")
     print(" -tc     retention days for trace files [days], trace files with their latest modification time older than these number of days are")  #internal incident 1870190781
     print("         removed from all hosts, default: -1 (not used)                                                                            ")
@@ -389,7 +391,7 @@ def is_secondary(logman):
     return result 
 
 def checkIfAcceptedFlag(word):
-    if not word in ["-h", "--help", "-d", "--disclaimer", "-ff", "-be", "-bd", "-bb", "-bo", "-br", "-tc", "-tf", "-to", "-td", "-dr", "-gr", "-gd", "-gw", "-gm", "-zb", "-zp", "-zl", "-zo", "-zk", "-ar", "-kr", "-ao", "-ad", "-om", "-oo", "-lr", "-eh", "-eu", "-ur", "-pe", "-fl", "-fo", "-rc", "-ro", "-cc", "-ce", "-cr", "-cs", "-cd", "-cq", "-cu", "-cb", "-cp", "-cm", "-co", "-vs", "-vt", "-vn", "-vtt", "-vto", "-vr", "-vnr", "-vl", "-ir", "-es", "-os", "-op", "-of", "-or", "-oi", "-fs", "-if", "-df", "-hci", "-so", "-ssl", "-vlh", "-k", "-dbs", "-en"]:
+    if not word in ["-h", "--help", "-d", "--disclaimer", "-ff", "-be", "-bd", "-bb", "-bo", "-br", "-bn", "-tc", "-tf", "-to", "-td", "-dr", "-gr", "-gd", "-gw", "-gm", "-zb", "-zp", "-zl", "-zo", "-zk", "-ar", "-kr", "-ao", "-ad", "-om", "-oo", "-lr", "-eh", "-eu", "-ur", "-pe", "-fl", "-fo", "-rc", "-ro", "-cc", "-ce", "-cr", "-cs", "-cd", "-cq", "-cu", "-cb", "-cp", "-cm", "-co", "-vs", "-vt", "-vn", "-vtt", "-vto", "-vr", "-vnr", "-vl", "-ir", "-es", "-os", "-op", "-of", "-or", "-oi", "-fs", "-if", "-df", "-hci", "-so", "-ssl", "-vlh", "-k", "-dbs", "-en"]:
         print "INPUT ERROR: ", word, " is not one of the accepted input flags. Please see --help for more information."
         os._exit(1)
 
@@ -455,14 +457,16 @@ def print_removed_entries(before, after, logman):
                 log(line, logman)
         log("\n", logman)
 
-def clean_backup_catalog(minRetainedBackups, minRetainedDays, deleteBackups, outputCatalog, outputDeletedCatalog, sqlman, logman):  
+def clean_backup_catalog(minRetainedBackups, minRetainedDays, deleteBackups, outputCatalog, outputDeletedCatalog, outputNDeletedLBEntries, sqlman, logman):  
     if outputCatalog or outputDeletedCatalog:
         nCatalogEntries = int(subprocess.check_output(sqlman.hdbsql_jAQaxU + " \"select count(*) from sys.m_backup_catalog\"", shell=True).strip(' '))
         if nCatalogEntries > 100000:
             log("INPUT ERROR: Please do not use -br true or -bo true if your backup catalog is larger than 100000 entries!", logman)
             os._exit(1)      
     nDataBackupCatalogEntriesBefore = int(subprocess.check_output(sqlman.hdbsql_jAQaxU + " \"SELECT COUNT(*) FROM sys.m_backup_catalog where entry_type_name != 'log backup'\"", shell=True).strip(' '))
-    nLogBackupCatalogEntriesBefore = int(subprocess.check_output(sqlman.hdbsql_jAQaxU + " \"SELECT COUNT(*) FROM sys.m_backup_catalog where entry_type_name = 'log backup'\"", shell=True).strip(' '))
+    nLogBackupCatalogEntriesBefore = 0
+    if outputNDeletedLBEntries:
+        nLogBackupCatalogEntriesBefore = int(subprocess.check_output(sqlman.hdbsql_jAQaxU + " \"SELECT COUNT(*) FROM sys.m_backup_catalog where entry_type_name = 'log backup'\"", shell=True).strip(' '))
     if nDataBackupCatalogEntriesBefore == 0:
         return [0,0]
     sqls_for_cleanup = sqls_for_backup_catalog_cleanup(minRetainedBackups, minRetainedDays, deleteBackups, sqlman)
@@ -477,7 +481,9 @@ def clean_backup_catalog(minRetainedBackups, minRetainedDays, deleteBackups, out
             errorlog += "If there is another error (i.e. not insufficient privilege) then please try to execute \n"+sql_for_cleanup+"\nin e.g. the SQL editor in SAP HANA Studio. If you get the same error then this has nothing to do with hanacleaner"
             try_execute_sql(sql_for_cleanup, errorlog, sqlman, logman)                 
         nDataBackupCatalogEntriesAfter = int(subprocess.check_output(sqlman.hdbsql_jAQaxU + " \"SELECT COUNT(*) FROM sys.m_backup_catalog where entry_type_name != 'log backup'\"", shell=True).strip(' '))
-        nLogBackupCatalogEntriesAfter = int(subprocess.check_output(sqlman.hdbsql_jAQaxU + " \"SELECT COUNT(*) FROM sys.m_backup_catalog where entry_type_name = 'log backup'\"", shell=True).strip(' '))
+        nLogBackupCatalogEntriesAfter = 0
+        if outputNDeletedLBEntries:
+            nLogBackupCatalogEntriesAfter = int(subprocess.check_output(sqlman.hdbsql_jAQaxU + " \"SELECT COUNT(*) FROM sys.m_backup_catalog where entry_type_name = 'log backup'\"", shell=True).strip(' '))
         if outputCatalog or outputDeletedCatalog:
             afterCatalog = subprocess.check_output(sqlman.hdbsql_jAxU + " \"" + sql_for_catalog + "\"", shell=True)
         if outputCatalog:
@@ -1078,6 +1084,7 @@ def main():
     deleteBackups = "false"
     outputCatalog = "false"
     outputDeletedCatalog = "false"
+    outputNDeletedLBEntries = "false"
     outputTraces = "false"
     outputRemovedTraces = "false"
     zipBackupLogsSizeLimit = "-1" #mb
@@ -1193,6 +1200,8 @@ def main():
                         outputCatalog = flagValue
                     if firstWord == '-br':
                         outputDeletedCatalog = flagValue
+                    if firstWord == '-bn':
+                        outputNDeletedLBEntries = flagValue
                     if firstWord == '-tc':
                         retainedTraceContentDays = flagValue
                     if firstWord == '-tf':
@@ -1343,6 +1352,8 @@ def main():
         outputCatalog = sys.argv[sys.argv.index('-bo') + 1]
     if '-br' in sys.argv:
         outputDeletedCatalog = sys.argv[sys.argv.index('-br') + 1]
+    if '-bn' in sys.argv:
+        outputNDeletedLBEntries = sys.argv[sys.argv.index('-bn') + 1]
     if '-tc' in sys.argv:
         retainedTraceContentDays = sys.argv[sys.argv.index('-tc') + 1]
     if '-tf' in sys.argv:
@@ -1528,6 +1539,8 @@ def main():
     outputCatalog = checkAndConvertBooleanFlag(outputCatalog, "-bo", logman)
     ### outputDeletedCatalog, -br
     outputDeletedCatalog = checkAndConvertBooleanFlag(outputDeletedCatalog, "-br", logman)
+    ### outputNDeletedLBEntries, -bn
+    outputNDeletedLBEntries = checkAndConvertBooleanFlag(outputNDeletedLBEntries, "-bn", logman)
     ### outputTraces, -to
     outputTraces = checkAndConvertBooleanFlag(outputTraces, "-to", logman)
     ### outputRemovedTraces, -td
@@ -1834,8 +1847,10 @@ def main():
                     zipBackupLogsSizeLimit = -1     
                 ###### START ALL HOUSE KEEPING TASKS ########
                 if minRetainedBackups >= 0 or minRetainedDays >= 0:
-                    [nCleanedData, nCleanedLog] = clean_backup_catalog(minRetainedBackups, minRetainedDays, deleteBackups, outputCatalog, outputDeletedCatalog, sqlman, logman)
+                    [nCleanedData, nCleanedLog] = clean_backup_catalog(minRetainedBackups, minRetainedDays, deleteBackups, outputCatalog, outputDeletedCatalog, outputNDeletedLBEntries, sqlman, logman)
                     logmessage = str(nCleanedData)+" data backup entries and "+str(nCleanedLog)+" log backup entries were removed from the backup catalog"
+                    if outputNDeletedLBEntries:
+                        logmessage = str(nCleanedData)+" data backup entries were removed from the backup catalog (number removed log backups is unknown since -bn = false)"
                     log(logmessage, logman)
                     emailmessage += logmessage+"\n"
                 else:
