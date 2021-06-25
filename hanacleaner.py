@@ -1540,6 +1540,10 @@ def main():
     if not is_integer(retainedTraceFilesDays):
         log("INPUT ERROR: -tf must be an integer. Please see --help for more information.", logman)
         os._exit(1)
+    if outputRemovedTraces:
+        if retainedTraceContentDays == "-1" and retainedTraceFilesDays == "-1":
+            log("INPUT ERROR: -td is true allthough both -tc and -tf is -1. This makes no sense. Please see --help for more information.", logman)
+            os._exit(1)
     ### retainedDumpDays, -dr
     if not is_integer(retainedDumpDays):
         log("INPUT ERROR: -dr must be an integer. Please see --help for more information.", logman)
