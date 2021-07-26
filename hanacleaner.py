@@ -37,12 +37,24 @@ def printHelp():
     print("         removed from all hosts, default: -1 (not used)                                                                            ")
     print("         Note: Conceptual -tc is the same as -tf, but -tc is using ALTER SYSTEM CLEAR TRACES ... See SQL Ref. for more info.       ")
     print("         Note: there is a bug (fixed with rev.122.11) that could cause younger trace files to be removed.                          ")
-    print("         Note: if [expensive_statement] --> use_in_memory_tracking = true HANA will automatically flush expensive statements into  ")
-    print("               memory before deleting the *.expensive_statements.*.trc files, i.e. to keep consistency some clean-up might not work")
+    print("         Note: expensive statements are not included in -tc, see -te below                                                         ")
+    print(" -te     retention days for expensive statement files [days], same as for -tc, but only for expensive statement files, only use    ")  #internal incident 1980358670  
+    print("         if you read and understood SAP Note 2819941 (should probably only be used with use_in_memory_tracking = false),           ")  #My opinion: this is a BUG!!
+    print("         default: -1 (not used)                                                                                                    ")
+    print(" -tcb    with backup [true/false], the trace files that are removed with the -tc and -te flags are backed up (as a .gz),           ")
+    print("         i.e. ALTER SYSTEM CLEAR TRACES ... WITH BACKUP, see SQL Ref., default: false                                              ")
+    print("         NOTE: Some small, unnecessary files, like .stat (SAP Note 2370780), might be deleted by WITH BACKUP --> the numbers might ")
+    print("         not seem to fit                                                                                                           ") #internal incident 2180309626
+    print(" -tbd    directory for the trace backups, full path of the directory to where the back up (see -tcb) of the trace files            ")
+    print("         are moved (for housekeeping of moved files, see ANY FILES below),     default: '' (they stay in the original directory)   ")
+    print(" -tmo    time out for move [seconds], the move, requested by the -tbd flag, must wait until the compression, requested by the -tcb ")
+    print("         flag, is finished. This can take some seconds. If it is not finished before the time out, specified by the -tmo flag,     ")
+    print("         the move will not happen, default: 30 seconds                                                                             ")
     print(" -tf     retention days for trace files [days], trace files, in all hosts, that are older than this number of days are removed     ")
     print("         (except for the currently opened trace files), only files with certain extensions like .trc, .log etc are taken into      ")
     print("         account, backup.log and backint.log, are excepted, please see -zb and -zp instead, default: -1 (not used)                 ")
     print("         Note: Conceptual -tf is the same as -tc, but -tf is using ALTER SYSTEM REMOVE TRACES ... See SQL Ref. for more info.      ")
+    print("         Note: ALTER SYSTEM REMOVE TRACES ... WITH BACKUP does not exist, see SQL Ref., so there is no -tfb flag.                  ")
     print(" -to     output traces [true/false], displays trace files before and after the cleanup, default: false                             ")
     print(" -td     output deleted traces [true/false], displays trace files that were deleted, default: false                                ")
     print("         ----  DUMP FILES  ----                                                                                                    ")
@@ -263,12 +275,12 @@ def printDisclaimer():
 ######################## CLASS DEFINITIONS ################################
 
 class SQLManager:
-    def __init__(self, execute_sql, hdbsql_string, dbuserkey, dbase, log_sql):
+    def __init__(self, execute_sql, hdbsql_string, dbuserkey, DATABASE, log_sql):
         self.execute = execute_sql
         self.key = dbuserkey
-        self.db = dbase
+        self.db = DATABASE
         self.log = log_sql
-        if len(dbase) > 1:
+        if len(DATABASE) > 1:
             self.hdbsql_jAU = hdbsql_string + " -j -A -U " + self.key + " -d " + self.db
             self.hdbsql_jAxU = hdbsql_string + " -j -A -x -U " + self.key + " -d " + self.db
             self.hdbsql_jAaxU = hdbsql_string + " -j -A -a -x -U " + self.key + " -d " + self.db
@@ -391,7 +403,7 @@ def is_secondary(logman):
     return result 
 
 def checkIfAcceptedFlag(word):
-    if not word in ["-h", "--help", "-d", "--disclaimer", "-ff", "-be", "-bd", "-bb", "-bo", "-br", "-bn", "-tc", "-tf", "-to", "-td", "-dr", "-gr", "-gd", "-gw", "-gm", "-zb", "-zp", "-zl", "-zo", "-zk", "-ar", "-kr", "-ao", "-ad", "-om", "-oo", "-lr", "-eh", "-eu", "-ur", "-pe", "-fl", "-fo", "-rc", "-ro", "-cc", "-ce", "-cr", "-cs", "-cd", "-cq", "-cu", "-cb", "-cp", "-cm", "-co", "-vs", "-vt", "-vn", "-vtt", "-vto", "-vr", "-vnr", "-vl", "-ir", "-es", "-os", "-op", "-of", "-or", "-oi", "-fs", "-if", "-df", "-hci", "-so", "-ssl", "-vlh", "-k", "-dbs", "-en"]:
+    if not word in ["-h", "--help", "-d", "--disclaimer", "-ff", "-be", "-bd", "-bb", "-bo", "-br", "-bn", "-tc", "-te", "-tcb", "-tbd", "-tmo", "-tf", "-to", "-td", "-dr", "-gr", "-gd", "-gw", "-gm", "-zb", "-zp", "-zl", "-zo", "-zk", "-ar", "-kr", "-ao", "-ad", "-om", "-oo", "-lr", "-eh", "-eu", "-ur", "-pe", "-fl", "-fo", "-rc", "-ro", "-cc", "-ce", "-cr", "-cs", "-cd", "-cq", "-cu", "-cb", "-cp", "-cm", "-co", "-vs", "-vt", "-vn", "-vtt", "-vto", "-vr", "-vnr", "-vl", "-ir", "-es", "-os", "-op", "-of", "-or", "-oi", "-fs", "-if", "-df", "-hci", "-so", "-ssl", "-vlh", "-k", "-dbs", "-en"]:
         print "INPUT ERROR: ", word, " is not one of the accepted input flags. Please see --help for more information."
         os._exit(1)
 
@@ -493,10 +505,19 @@ def clean_backup_catalog(minRetainedBackups, minRetainedDays, deleteBackups, out
         return [nDataBackupCatalogEntriesBefore - nDataBackupCatalogEntriesAfter, max(nLogBackupCatalogEntriesBefore - nLogBackupCatalogEntriesAfter,0)] #if a logbackup was done during run
     else:
         return [0,0]
-          
+
+def clear_traces(trace_list, oldestRetainedTraceContentDate, backupTraceContent, sqlman, logman):
+    if backupTraceContent:
+        sql = "ALTER SYSTEM CLEAR TRACES ("+trace_list+") UNTIL '"+oldestRetainedTraceContentDate.strftime('%Y-%m-%d')+" "+datetime.now().strftime("%H:%M:%S")+"' WITH BACKUP" 
+    else:
+        sql = "ALTER SYSTEM CLEAR TRACES ("+trace_list+") UNTIL '"+oldestRetainedTraceContentDate.strftime('%Y-%m-%d')+" "+datetime.now().strftime("%H:%M:%S")+"'" 
+    errorlog = "\nERROR: The user represented by the key "+sqlman.key+" could not clear traces. \nOne possible reason for this is insufficient privilege, \ne.g. lack of the system privilege TRACE ADMIN.\n"
+    errorlog += "If there is another error (i.e. not insufficient privilege) then please try to execute \n"+sql+"\nin e.g. the SQL editor in SAP HANA Studio. If you get the same error then this has nothing to do with hanacleaner"
+    try_execute_sql(sql, errorlog, sqlman, logman)    
      
-def clean_trace_files(retainedTraceContentDays, retainedTraceFilesDays, outputTraces, outputRemovedTraces, SID, local_dbinstance, hosts, sqlman, logman):
+def clean_trace_files(retainedTraceContentDays, retainedExpensiveTraceContentDays, backupTraceContent, backupTraceDirectory, timeOutForMove, retainedTraceFilesDays, outputTraces, outputRemovedTraces, SID, DATABASE, local_dbinstance, hosts, sqlman, logman):
     nbrTracesBefore = int(subprocess.check_output(sqlman.hdbsql_jAQaxU + " \"SELECT COUNT(*) FROM sys.m_tracefiles\"", shell=True).strip(' '))
+    #nbrZippedTracesBefore = int(subprocess.check_output(sqlman.hdbsql_jAQaxU + " \"SELECT COUNT(*) FROM sys.m_tracefiles where FILE_NAME like '%.gz%'\"", shell=True).strip(' '))
     if nbrTracesBefore == 0:
         return 0  
     if outputTraces:
@@ -504,14 +525,51 @@ def clean_trace_files(retainedTraceContentDays, retainedTraceFilesDays, outputTr
         log("\nBEFORE:\n"+beforeTraces, logman)
     if outputRemovedTraces:
         beforeTraceFiles = subprocess.check_output(sqlman.hdbsql_jAaxU + " \"select HOST, FILE_NAME from sys.m_tracefiles order by file_mtime desc\"", shell=True)
-    if retainedTraceContentDays != "-1":
+    if retainedTraceContentDays != "-1" or retainedExpensiveTraceContentDays != "-1":
         oldestRetainedTraceContentDate = datetime.now() + timedelta(days = -int(retainedTraceContentDays))
-        # Removed EXPENSIVESTATEMENTS and opened internal incident 1980358670 --> return once fixed.
-        #sql = "ALTER SYSTEM CLEAR TRACES ('ALERT','CLIENT','CRASHDUMP','EMERGENCYDUMP','EXPENSIVESTATEMENT','RTEDUMP','UNLOAD','ROWSTOREREORG','SQLTRACE','*') UNTIL '"+oldestRetainedTraceContentDate.strftime('%Y-%m-%d')+" "+datetime.now().strftime("%H:%M:%S")+"'" 
-        sql = "ALTER SYSTEM CLEAR TRACES ('ALERT','CLIENT','CRASHDUMP','EMERGENCYDUMP','RTEDUMP','UNLOAD','ROWSTOREREORG','SQLTRACE','*') UNTIL '"+oldestRetainedTraceContentDate.strftime('%Y-%m-%d')+" "+datetime.now().strftime("%H:%M:%S")+"'" 
-        errorlog = "\nERROR: The user represented by the key "+sqlman.key+" could not clear traces. \nOne possible reason for this is insufficient privilege, \ne.g. lack of the system privilege TRACE ADMIN.\n"
-        errorlog += "If there is another error (i.e. not insufficient privilege) then please try to execute \n"+sql+"\nin e.g. the SQL editor in SAP HANA Studio. If you get the same error then this has nothing to do with hanacleaner"
-        try_execute_sql(sql, errorlog, sqlman, logman)          
+        timeStampsForClearTraces = [datetime.now().strftime("%Y%m%d%H%M%S"), (datetime.now() + timedelta(seconds=1)).strftime("%Y%m%d%H%M%S"), (datetime.now() + timedelta(seconds=2)).strftime("%Y%m%d%H%M%S"), (datetime.now() + timedelta(seconds=3)).strftime("%Y%m%d%H%M%S")]
+        if retainedTraceContentDays != "-1":
+            clear_traces("'ALERT','CLIENT','CRASHDUMP','EMERGENCYDUMP','RTEDUMP','UNLOAD','ROWSTOREREORG','SQLTRACE','*'", oldestRetainedTraceContentDate, backupTraceContent, sqlman, logman)  
+        if retainedExpensiveTraceContentDays != "-1":   # internal incident 1980358670, SAP Note 2819941 shows a BUG that should be fixed! "expected behaviour" = bull s###
+            clear_traces("'EXPENSIVESTATEMENT'", oldestRetainedTraceContentDate, backupTraceContent, sqlman, logman)  
+        if backupTraceDirectory:
+            if not DATABASE:
+                log("INPUT ERROR: If -tbd is used, either DATABASE must be specified in the key (see the manual of hdbuserstore), or -dbs must be specifed.", logman)
+                log("NOTE: -tbd is not supported for none MDC systems", logman)
+                os._exit(1)
+            if not os.path.exists(backupTraceDirectory):
+                os.makedirs(backupTraceDirectory)
+            fileNameEndingsToBeMoved = ['_'+timeStamp+'.gz' for timeStamp in timeStampsForClearTraces]
+            fileNameEndingsToWaitFor = ['_'+timeStamp+'.2gz' for timeStamp in timeStampsForClearTraces]
+            #This compression takes a while and .2gz files are created as intermediate files, when the .2gz files are gone, we are done
+            filesToWaitFor = ['dummy.2gz']
+            waitedSeconds = 0
+            while filesToWaitFor and waitedSeconds < timeOutForMove:
+                time.sleep(1)
+                waitedSeconds += 1
+                sql = "select FILE_NAME from sys.m_tracefiles where FILE_NAME like '%" + "' or FILE_NAME like '%".join(fileName for fileName in fileNameEndingsToWaitFor) + "'"
+                filesToWaitFor = subprocess.check_output(sqlman.hdbsql_jAQaxU + " \"" + sql + "\"", shell=True).splitlines(1)
+                filesToWaitFor = [file.strip('\n').strip(' ') for file in filesToWaitFor]
+                filesToWaitFor = [file for file in filesToWaitFor if file]
+            if waitedSeconds < timeOutForMove:
+                sql = "select FILE_NAME from sys.m_tracefiles where FILE_NAME like '%" + "' or FILE_NAME like '%".join(fileName for fileName in fileNameEndingsToBeMoved) + "'"
+                filesToBeMoved = subprocess.check_output(sqlman.hdbsql_jAQaxU + " \"" + sql + "\"", shell=True).splitlines(1)
+                filesToBeMoved = [file.strip('\n').strip(' ') for file in filesToBeMoved]
+                filesToBeMoved = [file for file in filesToBeMoved if file]
+                for host in hosts:
+                    path = cdalias('cdhdb')+"/"+host 
+                    for filename in filesToBeMoved:
+                        fullFileName = subprocess.check_output("find "+path+" -name "+filename, shell=True).strip('\n').strip(' ')
+                        if fullFileName and ((DATABASE == 'SYSTEMDB' and 'DB_' in fullFileName) or (DATABASE != 'SYSTEMDB' and not 'DB_'+DATABASE in fullFileName)):
+                            fullFileName = ''
+                        if fullFileName:
+                            subprocess.check_output("mv "+fullFileName+" "+backupTraceDirectory+"/", shell=True)
+                if outputRemovedTraces and filesToBeMoved:
+                    log("\nARCHIVED ("+str(len(filesToBeMoved))+"):", logman)
+                    for filename in filesToBeMoved:
+                        log(filename, logman)
+            else:
+                log("WARNING: The compression, requested by the -tbd flag, took longer ("+str(waitedSeconds)+" seconds) than the timeout ("+str(timeOutForMove)+" seconds), so the archived trace files will not be moved.")
     if retainedTraceFilesDays != "-1":
         oldestRetainedTraceFilesDate = datetime.now() + timedelta(days = -int(retainedTraceFilesDays))
         sql = "select FILE_NAME from sys.m_tracefiles where file_size != '-1' and file_mtime < '"+oldestRetainedTraceFilesDate.strftime('%Y-%m-%d')+" "+datetime.now().strftime("%H:%M:%S")+"'"  # file_size = -1 --> folder, cannot be removed
@@ -531,6 +589,7 @@ def clean_trace_files(retainedTraceContentDays, retainedTraceFilesDays, outputTr
                     errorlog += "If there is another error (i.e. not insufficient privilege) then please try to execute \n"+sql+"\nin e.g. the SQL editor in SAP HANA Studio. If you get the same error then this has nothing to do with hanacleaner"
                     try_execute_sql(sql, errorlog, sqlman, logman)                               
     nbrTracesAfter = int(subprocess.check_output(sqlman.hdbsql_jAQaxU + " \"SELECT COUNT(*) FROM sys.m_tracefiles\"", shell=True).strip(' '))
+    #nbrZippedTracesAfter = int(subprocess.check_output(sqlman.hdbsql_jAQaxU + " \"SELECT COUNT(*) FROM sys.m_tracefiles where FILE_NAME like '%.gz%'\"", shell=True).strip(' '))
     nbrRemovedTraceFiles = nbrTracesBefore - nbrTracesAfter
     if outputTraces:
         afterTraces = subprocess.check_output(sqlman.hdbsql_jAxU + " \"select * from sys.m_tracefiles order by file_mtime desc\"", shell=True)
@@ -1085,6 +1144,9 @@ def main():
     outputCatalog = "false"
     outputDeletedCatalog = "false"
     outputNDeletedLBEntries = "false"
+    backupTraceContent = "false"
+    backupTraceDirectory = ""
+    timeOutForMove = "30"
     outputTraces = "false"
     outputRemovedTraces = "false"
     zipBackupLogsSizeLimit = "-1" #mb
@@ -1100,6 +1162,7 @@ def main():
     dbases = ['']
     email_notif = []
     retainedTraceContentDays = "-1"
+    retainedExpensiveTraceContentDays = "-1"
     retainedTraceFilesDays = "-1"
     retainedDumpDays = "-1"
     retainedAnyFileDays = "-1"
@@ -1204,6 +1267,14 @@ def main():
                         outputNDeletedLBEntries = flagValue
                     if firstWord == '-tc':
                         retainedTraceContentDays = flagValue
+                    if firstWord == '-te':
+                        retainedExpensiveTraceContentDays = flagValue
+                    if firstWord == '-tcb':
+                        backupTraceContent = flagValue
+                    if firstWord == '-tbd':
+                        backupTraceDirectory = flagValue
+                    if firstWord == '-tmo':
+                        timeOutForMove = flagValue
                     if firstWord == '-tf':
                         retainedTraceFilesDays = flagValue
                     if firstWord == '-to':
@@ -1356,6 +1427,14 @@ def main():
         outputNDeletedLBEntries = sys.argv[sys.argv.index('-bn') + 1]
     if '-tc' in sys.argv:
         retainedTraceContentDays = sys.argv[sys.argv.index('-tc') + 1]
+    if '-te' in sys.argv:
+        retainedExpensiveTraceContentDays = sys.argv[sys.argv.index('-te') + 1]
+    if '-tcb' in sys.argv:
+        backupTraceContent = sys.argv[sys.argv.index('-tcb') + 1]
+    if '-tbd' in sys.argv:
+        backupTraceDirectory = sys.argv[sys.argv.index('-tbd') + 1]
+    if '-tmo' in sys.argv:
+        timeOutForMove = sys.argv[sys.argv.index('-tmo') + 1]
     if '-tf' in sys.argv:
         retainedTraceFilesDays = sys.argv[sys.argv.index('-tf') + 1]
     if '-to' in sys.argv:
@@ -1549,13 +1628,31 @@ def main():
     if not is_integer(retainedTraceContentDays):
         log("INPUT ERROR: -tc must be an integer. Please see --help for more information.", logman)
         os._exit(1)
+    ### retainedExpensiveTraceContentDays, -te
+    if not is_integer(retainedExpensiveTraceContentDays):
+        log("INPUT ERROR: -te must be an integer. Please see --help for more information.", logman)
+        os._exit(1)
+    ### backupTraceContent, -tcb
+    backupTraceContent = checkAndConvertBooleanFlag(backupTraceContent, "-tcb", logman)
+    if backupTraceContent and (retainedTraceContentDays == "-1" and retainedExpensiveTraceContentDays == "-1"):
+        log("INPUT ERROR: -tcb is specified although -tc and -te are not. This makes no sense. Please see --help for more information.", logman)
+        os._exit(1)
+    ### backupTraceDirectory, -tbd
+    if backupTraceDirectory and not backupTraceContent:
+        log("INPUT ERROR: -tbd is specified although -tcb is not. This makes no sense. Please see --help for more information.", logman)
+        os._exit(1)
+    ### timeOutForMove, -tmo
+    if not is_integer(timeOutForMove):
+        log("INPUT ERROR: -tmo must be an integer. Please see --help for more information.", logman)
+        os._exit(1)
+    timeOutForMove = int(timeOutForMove)
     ### retainedTraceFilesDays, -tf
     if not is_integer(retainedTraceFilesDays):
         log("INPUT ERROR: -tf must be an integer. Please see --help for more information.", logman)
         os._exit(1)
     if outputRemovedTraces:
-        if retainedTraceContentDays == "-1" and retainedTraceFilesDays == "-1":
-            log("INPUT ERROR: -td is true allthough both -tc and -tf is -1. This makes no sense. Please see --help for more information.", logman)
+        if retainedTraceContentDays == "-1" and retainedExpensiveTraceContentDays == "-1" and retainedTraceFilesDays == "-1":
+            log("INPUT ERROR: -td is true allthough -tc, -te and -tf are all -1. This makes no sense. Please see --help for more information.", logman)
             os._exit(1)
     ### retainedDumpDays, -dr
     if not is_integer(retainedDumpDays):
@@ -1789,12 +1886,18 @@ def main():
     while True: # hanacleaner intervall loop
         for dbuserkey in dbuserkeys:  
             ############ GET LOCAL INSTANCE and SID ##########
-            key_environment = subprocess.check_output('''hdbuserstore LIST '''+dbuserkey, shell=True) 
-            if "NOT FOUND" in key_environment:
-                print "ERROR, the key ", dbuserkey, " is not maintained in hdbuserstore."
+            try:
+                key_environment = subprocess.check_output('''hdbuserstore LIST '''+dbuserkey, shell=True) 
+            except:
+                log("ERROR, the key "+dbuserkey+" is not maintained in hdbuserstore.", logman)
                 os._exit(1)
-            ENV = key_environment.split('\n')[1].replace('  ENV : ','').replace(';',',').split(',')
-            key_hosts = [env.split(':')[0] for env in ENV] 
+            key_environment = key_environment.split('\n')
+            key_environment = [ke for ke in key_environment if ke]
+            ENV = key_environment[1].replace('  ENV : ','').replace(';',',').split(',')
+            key_hosts = [env.split(':')[0].split('.')[0] for env in ENV]  #if full host name is specified in the Key, only the first part is used 
+            DATABASE = ''
+            if len(key_environment) == 4:   # if DATABASE is specified in the key, this will by used in the SQLManager (but if -dbs is specified, -dbs wins, see below)
+                DATABASE = key_environment[3].replace('  DATABASE: ','').replace(' ', '')
             if not local_host in key_hosts:
                 print "ERROR, local host, ", local_host, ", should be one of the hosts specified for the key, ", dbuserkey, " (in case of virtual, please use -vlh, see --help for more info)"
                 os._exit(1)
@@ -1806,13 +1909,15 @@ def main():
                 os._exit(1)
             local_dbinstance = dbinstances[local_host_index]
             ############# MULTIPLE DATABASES #######
-            for dbase in dbases:
+            for dbase in dbases:   #if -dbs = dbases are specified, this overwrites DATABASE (that could come from the key)
+                if dbase:
+                    DATABASE = dbase
                 emailmessage = ""
                 ############# SQL MANAGER ##############
-                sqlman = SQLManager(execute_sql, hdbsql_string, dbuserkey, dbase, out_sql)
+                sqlman = SQLManager(execute_sql, hdbsql_string, dbuserkey, DATABASE, out_sql)
                 db_string = ''
-                if dbase:
-                    db_string = 'on DB '+dbase
+                if DATABASE:
+                    db_string = 'on DB '+DATABASE
                 whoami = subprocess.check_output('whoami', shell=True).replace('\n','')
                 if sqlman.execute:
                     startstring = "***********************************************************\n"+datetime.now().strftime("%Y-%m-%d %H:%M:%S")+"\nhanacleaner as "+whoami+" by "+dbuserkey+" on "+SID+"("+local_dbinstance+") "+db_string+" with \n"+" ".join(sys.argv)+"\nCleanup Statements will be executed (-es is default true)\nBefore using HANACleaner read the disclaimer!\npython hanacleaner.py --disclaimer\n***********************************************************" 
@@ -1837,10 +1942,10 @@ def main():
                 if sqlman.execute and (dummy_out != 'X' or not succeeded):
                     log("USER ERROR: The user represented by the key "+dbuserkey+" cannot connect to the system. Make sure this user is properly saved in hdbuserstore.", logman)
                     os._exit(1)
-                ##### HANA VERSIOIN COMPATABILITY ######    
+                ##### HANA VERSION COMPATABILITY ######    
                 [version, revision, mrevision] = hana_version_revision_maintenancerevision(sqlman, logman)
-                if retainedTraceContentDays != "-1" and (version < 2 and revision < 120):
-                    log("VERSION ERROR: -tc is not supported for SAP HANA rev. < 120. (The UNTIL option is new with SPS12.)", logman)
+                if (retainedTraceContentDays != "-1" or retainedExpensiveTraceContentDays != "-1") and (version < 2 and revision < 120):
+                    log("VERSION ERROR: -tc and -te are not supported for SAP HANA rev. < 120. (The UNTIL option is new with SPS12.)", logman)
                     os._exit(1)       
                 if zipBackupLogsSizeLimit != -1 and (version >= 2 and revision >= 40):
                     log("VERSION WARNING: -zb is not supported for SAP HANA 2 rev. >= 40. Instead configure size with parameters, see SAP Note 2797078.", logman)
@@ -1855,8 +1960,8 @@ def main():
                     emailmessage += logmessage+"\n"
                 else:
                     log("    (Cleaning of the backup catalog was not done since -be and -bd were both negative (or not specified))", logman)
-                if retainedTraceContentDays != "-1" or retainedTraceFilesDays != "-1":
-                    nCleaned = clean_trace_files(retainedTraceContentDays, retainedTraceFilesDays, outputTraces, outputRemovedTraces, SID, local_dbinstance, hosts(sqlman), sqlman, logman)
+                if retainedTraceContentDays != "-1" or retainedExpensiveTraceContentDays != "-1" or retainedTraceFilesDays != "-1":
+                    nCleaned = clean_trace_files(retainedTraceContentDays, retainedExpensiveTraceContentDays, backupTraceContent, backupTraceDirectory, timeOutForMove, retainedTraceFilesDays, outputTraces, outputRemovedTraces, SID, DATABASE, local_dbinstance, hosts(sqlman), sqlman, logman)
                     logmessage = str(nCleaned)+" trace files were removed"
                     log(logmessage, logman)
                     emailmessage += logmessage+"\n"
