@@ -376,20 +376,38 @@ def sql_for_backup_id_for_min_retained_days(minRetainedDays):
 def sql_for_backup_id_for_min_retained_backups(minRetainedBackups):
     return "SELECT ENTRY_ID, SYS_START_TIME from (SELECT ENTRY_ID, SYS_START_TIME, ROW_NUMBER() OVER(ORDER BY SYS_START_TIME desc) as NUM from sys.m_backup_catalog where (ENTRY_TYPE_NAME = 'complete data backup' or ENTRY_TYPE_NAME = 'data snapshot') and STATE_NAME = 'successful' order by SYS_START_TIME desc) as B where B.NUM = "+str(minRetainedBackups)
 
-def online_tests(online_test_interval, local_dbinstance, logman):
+def online_and_master_tests(online_test_interval, local_dbinstance, local_host, logman):
     if online_test_interval < 0: #then dont test
         return True
     else:
-        return is_online(local_dbinstance, logman) and not is_secondary(logman)
+        if is_online(local_dbinstance, logman) and not is_secondary(logman): 
+            return is_master(local_dbinstance, local_host, logman)  #HANACleaner should only run on the Master Node
+        else:
+            return False
 
-def is_online(dbinstance, logman):
+def is_master(local_dbinstance, local_host, logman):
+    process = subprocess.Popen(['python', cdalias('cdpy', local_dbinstance)+"/landscapeHostConfiguration.py"], stdout=subprocess.PIPE)
+    out, err = process.communicate()
+    out_lines = out.splitlines(1)
+    host_line = [line for line in out_lines if local_host in line]  #have not tested this with virtual and -vlh yet
+    if len(host_line) != 1:
+        log("ERROR: Something went wrong. It found more than one (or none) host line: ", host_line)
+    nameserver_actual_role = host_line[0].strip('\n').split('|')[11].strip(' ')
+    test_ok = (str(err) == "None")
+    result = nameserver_actual_role == 'master'
+    printout = "Master Check      , "+datetime.now().strftime("%Y-%m-%d %H:%M:%S")+"    ,     -            , "+str(test_ok)+"         , "+str(result)+"       , Nameserver actual role = "+nameserver_actual_role
+    log(printout, logman)
+    return result
+
+def is_online(dbinstance, logman): #Checks if all services are GREEN and if there exists an indexserver (if not this is a Stand-By) 
     process = subprocess.Popen(['sapcontrol', '-nr', dbinstance, '-function', 'GetProcessList'], stdout=subprocess.PIPE)
     out, err = process.communicate()
-    number_services = out.count(" HDB ")    
+    number_services = out.count(" HDB ") + out.count(" Local Secure Store")   
     number_running_services = out.count("GREEN")
+    number_indexservers = int(out.count("hdbindexserver")) # if not indexserver this is Stand-By
     test_ok = (str(err) == "None")
-    result = number_running_services == number_services
-    printout = "Online Check      , "+datetime.now().strftime("%Y-%m-%d %H:%M:%S")+"    ,     -            , "+str(test_ok)+"         , "+str(result)+"       , Number running services: "+str(number_running_services)+" out of "+str(number_services)
+    result = (number_running_services == number_services) and (number_indexservers != 0)
+    printout = "Online Check      , "+datetime.now().strftime("%Y-%m-%d %H:%M:%S")+"    ,     -            , "+str(test_ok)+"         , "+str(result)+"       , # index services: "+str(number_indexservers)+", # running services: "+str(number_running_services)+" out of "+str(number_services)
     log(printout, logman)
     return result
     
@@ -557,7 +575,7 @@ def clean_trace_files(retainedTraceContentDays, retainedExpensiveTraceContentDay
                 filesToBeMoved = [file.strip('\n').strip(' ') for file in filesToBeMoved]
                 filesToBeMoved = [file for file in filesToBeMoved if file]
                 for host in hosts:
-                    path = cdalias('cdhdb')+"/"+host 
+                    path = cdalias('cdhdb', local_dbinstance)+"/"+host 
                     for filename in filesToBeMoved:
                         fullFileName = subprocess.check_output("find "+path+" -name "+filename, shell=True).strip('\n').strip(' ')
                         if fullFileName and ((DATABASE == 'SYSTEMDB' and 'DB_' in fullFileName) or (DATABASE != 'SYSTEMDB' and not 'DB_'+DATABASE in fullFileName)):
@@ -599,8 +617,8 @@ def clean_trace_files(retainedTraceContentDays, retainedExpensiveTraceContentDay
         output_removed_trace_files(beforeTraceFiles, afterTraceFiles, logman)
     return nbrRemovedTraceFiles
 
-def clean_dumps(retainedDumpDays, sqlman, logman):
-    path = cdalias('cdglo')+"/sapcontrol/snapshots/" 
+def clean_dumps(retainedDumpDays, local_dbinstance, sqlman, logman):
+    path = cdalias('cdglo', local_dbinstance)+"/sapcontrol/snapshots/" 
     with open(os.devnull, 'w') as devnull:
         nbrDumpsBefore = int(subprocess.check_output("ls "+path+"fullsysteminfodump* | wc -l", shell=True, stderr=devnull).strip(' ')) 
         if not nbrDumpsBefore:
@@ -776,7 +794,7 @@ def zipBackupLogs(zipBackupLogsSizeLimit, zipBackupPath, zipLinks, zipOut, zipKe
                     subprocess.check_output("rm "+newname, shell=True)
     return nZipped
     
-def cdalias(alias):   # alias e.g. cdtrace, cdhdb, ...
+def cdalias(alias, local_dbinstance):   # alias e.g. cdtrace, cdhdb, ...
     su_cmd = ''
     whoami = subprocess.check_output('whoami', shell=True).replace('\n','')
     if whoami.lower() == 'root':
@@ -791,6 +809,7 @@ def cdalias(alias):   # alias e.g. cdtrace, cdhdb, ...
             piece_cmd = su_cmd+'/bin/bash -l -c'+" \' echo "+piece+'\''
             piece = (subprocess.check_output(piece_cmd, shell=True)).strip("\n")
         path = path + '/' + piece + '/' 
+    path = path.replace("[0-9][0-9]", local_dbinstance) # if /bin/bash shows strange HDB[0-9][0-9] we force correct instance on it
     return path
 
 def reclaim_logsegments(maxFreeLogsegments, sqlman, logman):
@@ -1150,7 +1169,7 @@ def main():
     outputTraces = "false"
     outputRemovedTraces = "false"
     zipBackupLogsSizeLimit = "-1" #mb
-    zipBackupPath = cdalias('cdtrace')
+    zipBackupPath = '' #default will be set to cdtrace as soon as we get local_instance
     zipLinks = "false"
     zipOut = "false"
     zipKeep = "true"
@@ -1689,9 +1708,10 @@ def main():
     zipBackupLogsSizeLimit = int(zipBackupLogsSizeLimit)
     if zipBackupLogsSizeLimit != -1:
         ### zipBackupPath, -zp
-        if not os.path.exists(zipBackupPath):
-            log("INPUT ERROR: The path provided with -zp does not exist. Please see --help for more information.\n"+zipBackupPath, logman)
-            os._exit(1)
+        if zipBackupPath: #default has been put to '' and will be put to cdtrace as soon as we get local_instance
+            if not os.path.exists(zipBackupPath):
+                log("INPUT ERROR: The path provided with -zp does not exist. Please see --help for more information.\n"+zipBackupPath, logman)
+                os._exit(1)
     ### zipLinks, -zl
     zipLinks = checkAndConvertBooleanFlag(zipLinks, "-zl", logman)
     ### zipOut, -zo
@@ -1926,13 +1946,13 @@ def main():
                 log(startstring, logman)
                 emailmessage += startstring+"\n"
                 ############ ONLINE TESTS (OPTIONAL) ##########################
-                while not online_tests(online_test_interval, local_dbinstance, logman):  #will check if Online and if Primary, but only if online_test_interval > -1           
-                    log("\nOne of the online checks found out that this HANA instance, "+str(local_dbinstance)+", is not online. ", logman)
+                while not online_and_master_tests(online_test_interval, local_dbinstance, local_host, logman):  #will check if Online and if Primary and not Stand-By, and then if Master, but only if online_test_interval > -1           
+                    log("\nOne of the online checks found out that this HANA instance, "+str(local_dbinstance)+", is not online or not master. ", logman)
                     if online_test_interval == 0:
                         log("HANACleaner will now abort since online_test_interval = 0.", logman)
                         os._exit(1)
                     else:
-                        log("HANACleaner will now have a "+str(online_test_interval)+" seconds break and check again if this Instance is online after the break.\n", logman)
+                        log("HANACleaner will now have a "+str(online_test_interval)+" seconds break and check again if this Instance is online, or master, after the break.\n", logman)
                         time.sleep(float(online_test_interval))  # wait online_test_interval seconds before again checking if HANA is running
                 ############ CHECK THAT USER CAN CONNECT TO HANA ###############  
                 sql = "SELECT * from DUMMY" 
@@ -1968,7 +1988,7 @@ def main():
                 else:
                     log("    (Cleaning traces was not done since -tc and -tf were both -1 (or not specified))", logman)
                 if retainedDumpDays != "-1":
-                    nCleaned = clean_dumps(retainedDumpDays, sqlman, logman)
+                    nCleaned = clean_dumps(retainedDumpDays, local_dbinstance, sqlman, logman)
                     logmessage = str(nCleaned)+" fullsysteminfodump zip files (that can contain both fullsystem dumps and runtime dumps) were removed"
                     log(logmessage, logman)
                     emailmessage += logmessage+"\n"
@@ -1982,6 +2002,8 @@ def main():
                 else:
                     log("    (Cleaning of general files was not done since -gr was -1 (or not specified))", logman)
                 if zipBackupLogsSizeLimit >= 0:
+                    if not zipBackupPath:
+                        zipBackupPath = cdalias('cdtrace', local_dbinstance)
                     nZipped = zipBackupLogs(zipBackupLogsSizeLimit, zipBackupPath, zipLinks, zipOut, zipKeep, sqlman, logman)
                     logmessage = str(nZipped)+" backup logs were compressed"
                     log(logmessage, logman)
