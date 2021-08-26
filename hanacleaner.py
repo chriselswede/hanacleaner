@@ -1912,7 +1912,7 @@ def main():
                 log("ERROR, the key "+dbuserkey+" is not maintained in hdbuserstore.", logman)
                 os._exit(1)
             key_environment = key_environment.split('\n')
-            key_environment = [ke for ke in key_environment if ke]
+            key_environment = [ke for ke in key_environment if ke and not ke == 'Operation succeed.']
             ENV = key_environment[1].replace('  ENV : ','').replace(';',',').split(',')
             key_hosts = [env.split(':')[0].split('.')[0] for env in ENV]  #if full host name is specified in the Key, only the first part is used 
             DATABASE = ''
