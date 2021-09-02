@@ -165,8 +165,8 @@ def printHelp():
     print(" -hci    hana cleaner interval [days], number days that hanacleaner waits before it restarts, default: -1 (exits after 1 cycle)    ")
     print("         NOTE: Do NOT use if you run hanacleaner in a cron job!                                                                    ")
     print("         ---- INPUT  ----                                                                                                          ")
-    print(" -ff     flag file, full path to a file that contains input flags, each flag in a new line, all lines in the file that does not    ")
-    print("         start with a flag are considered comments, if this flag is used no other flags should be given, default: '' (not used)    ")
+    print(" -ff     flag file(s), a comma seperated list of full paths to files that contain input flags, each flag in a new line, all lines  ")
+    print("         in the files that do not start with a flag (a minus) are considered comments, default: '' (not used)                      ")
     print("         Note: if you include %SID in the path, it will automatically be replaced with the actually SID of your system             ")
     print("         ---- EXECUTE  ----                                                                                                        ")
     print(" -es     execute sql [true/false], execute all crucial housekeeping tasks (useful to turn off for investigation with -os=true,     ")
@@ -177,6 +177,8 @@ def printHelp():
     print("         Note: if you include %SID in the output path, it will automatically be replaced with the actually SID of your system      ")
     print(" -of     output prefix, adds a string to the output file, default: ''   (not used)                                                 ")
     print(" -or     output retention days, logs in the paths specified with -op are only saved for this number of days, default: -1 (not used)")
+    print(" -oc     output configuration [true/false], logs all parameters set by the flags and where the flags were set, i.e. what flag file ")
+    print("         (one of the files listed in -ff) or if it was set via a flag specifice on the command line, default = false               ")
     print(" -so     standard out switch [true/false], switch to write to standard out, default:  true                                         ")
     print("         ---- INSTANCE ONLINE CHECK ----                                                                                           ")
     print(" -oi     online test interval [seconds], < 0: HANACleaner does not check if online or secondary,           default: -1 (not used)  ")
@@ -421,10 +423,35 @@ def is_secondary(logman):
     return result 
 
 def checkIfAcceptedFlag(word):
-    if not word in ["-h", "--help", "-d", "--disclaimer", "-ff", "-be", "-bd", "-bb", "-bo", "-br", "-bn", "-tc", "-te", "-tcb", "-tbd", "-tmo", "-tf", "-to", "-td", "-dr", "-gr", "-gd", "-gw", "-gm", "-zb", "-zp", "-zl", "-zo", "-zk", "-ar", "-kr", "-ao", "-ad", "-om", "-oo", "-lr", "-eh", "-eu", "-ur", "-pe", "-fl", "-fo", "-rc", "-ro", "-cc", "-ce", "-cr", "-cs", "-cd", "-cq", "-cu", "-cb", "-cp", "-cm", "-co", "-vs", "-vt", "-vn", "-vtt", "-vto", "-vr", "-vnr", "-vl", "-ir", "-es", "-os", "-op", "-of", "-or", "-oi", "-fs", "-if", "-df", "-hci", "-so", "-ssl", "-vlh", "-k", "-dbs", "-en"]:
+    if not word in ["-h", "--help", "-d", "--disclaimer", "-ff", "-be", "-bd", "-bb", "-bo", "-br", "-bn", "-tc", "-te", "-tcb", "-tbd", "-tmo", "-tf", "-to", "-td", "-dr", "-gr", "-gd", "-gw", "-gm", "-zb", "-zp", "-zl", "-zo", "-zk", "-ar", "-kr", "-ao", "-ad", "-om", "-oo", "-lr", "-eh", "-eu", "-ur", "-pe", "-fl", "-fo", "-rc", "-ro", "-cc", "-ce", "-cr", "-cs", "-cd", "-cq", "-cu", "-cb", "-cp", "-cm", "-co", "-vs", "-vt", "-vn", "-vtt", "-vto", "-vr", "-vnr", "-vl", "-ir", "-es", "-os", "-op", "-of", "-or", "-oc", "-oi", "-fs", "-if", "-df", "-hci", "-so", "-ssl", "-vlh", "-k", "-dbs", "-en"]:
         print "INPUT ERROR: ", word, " is not one of the accepted input flags. Please see --help for more information."
         os._exit(1)
 
+def getParameterFromFile(flag, flag_string, flag_value, flag_file, flag_log, parameter):
+    if flag == flag_string:
+        parameter = flag_value
+        flag_log[flag_string] = [flag_value, flag_file]
+    return parameter
+
+def getParameterListFromFile(flag, flag_string, flag_value, flag_file, flag_log, parameter):
+    if flag == flag_string:
+        parameter = [x for x in flag_value.split(',')]
+        flag_log[flag_string] = [flag_value, flag_file]
+    return parameter
+
+def getParameterFromCommandLine(sysargv, flag_string, flag_log, parameter):
+    if flag_string in sysargv:
+        flag_value = sysargv[sysargv.index(flag_string) + 1]
+        parameter = flag_value
+        flag_log[flag_string] = [flag_value, "command line"]
+    return parameter
+
+def getParameterListFromCommandLine(sysargv, flag_string, flag_log, parameter):
+    if flag_string in sysargv:
+        parameter = [x for x in sysargv[  sysargv.index(flag_string) + 1   ].split(',')]
+        flag_log[flag_string] = [','.join(parameter), "command line"]
+    return parameter
+   
 def backup_id(minRetainedBackups, minRetainedDays, sqlman):
     if minRetainedDays >= 0:
         results = subprocess.check_output(sqlman.hdbsql_jAQaxU + " \"" + sql_for_backup_id_for_min_retained_days(minRetainedDays) + "\"", shell=True).splitlines(1)
@@ -1225,7 +1252,7 @@ def main():
     refreshAge = '-1'
     minRetainedIniDays = "-1" #days
     file_system = "" # by default check all file systems with  df -h
-    flag_file = ""    #default: no configuration input file
+    flag_files = []    #default: no configuration input file
     ignore_filesystems = ""
     execute_sql = 'true'
     out_sql = 'false'
@@ -1233,6 +1260,7 @@ def main():
     out_prefix = ""
     do_df_check = 'true'
     minRetainedOutputDays = "-1" #days
+    out_config = 'false'
     online_test_interval = "-1" #seconds
     std_out = "true" #print to std out
     virtual_local_host = "" #default: assume physical local host
@@ -1254,338 +1282,182 @@ def main():
     ############ GET SID ##########
     SID = get_sid()
 
-    #####################  PRIMARY INPUT ARGUMENTS   ####################     
+    #####################  PRIMARY INPUT ARGUMENTS   ####################
+    flag_log = {}     
     if '-h' in sys.argv or '--help' in sys.argv:
         printHelp()   
     if '-d' in sys.argv or '--disclaimer' in sys.argv:
-        printDisclaimer()    
-    if '-ff' in sys.argv:
-        flag_file = sys.argv[sys.argv.index('-ff') + 1]
-        flag_file = flag_file.replace('%SID', SID)
+        printDisclaimer()
+    flag_files = getParameterListFromCommandLine(sys.argv, '-ff', flag_log, flag_files)    
+    flag_files = [ff.replace('%SID', SID) for ff in flag_files]
 
     ############ CONFIGURATION FILE ###################
-    if flag_file:
+    for flag_file in flag_files:
         with open(flag_file, 'r') as fin:
             for line in fin:
                 firstWord = line.strip(' ').split(' ')[0]  
                 if firstWord[0:1] == '-':
                     checkIfAcceptedFlag(firstWord)
-                    #flagValue = line.strip(' ').split(' ')[1]
                     flagValue = line.strip(' ').split('"')[1].strip('\n').strip('\r') if line.strip(' ').split(' ')[1][0] == '"' else line.strip(' ').split(' ')[1].strip('\n').strip('\r')
-                    if firstWord == '-be':
-                        minRetainedBackups = flagValue
-                    if firstWord == '-bd':
-                        minRetainedDays = flagValue
-                    if firstWord == '-bb':
-                        deleteBackups = flagValue
-                    if firstWord == '-bo':
-                        outputCatalog = flagValue
-                    if firstWord == '-br':
-                        outputDeletedCatalog = flagValue
-                    if firstWord == '-bn':
-                        outputNDeletedLBEntries = flagValue
-                    if firstWord == '-tc':
-                        retainedTraceContentDays = flagValue
-                    if firstWord == '-te':
-                        retainedExpensiveTraceContentDays = flagValue
-                    if firstWord == '-tcb':
-                        backupTraceContent = flagValue
-                    if firstWord == '-tbd':
-                        backupTraceDirectory = flagValue
-                    if firstWord == '-tmo':
-                        timeOutForMove = flagValue
-                    if firstWord == '-tf':
-                        retainedTraceFilesDays = flagValue
-                    if firstWord == '-to':
-                        outputTraces = flagValue
-                    if firstWord == '-td':
-                        outputRemovedTraces = flagValue
-                    if firstWord == '-dr':
-                        retainedDumpDays = flagValue
-                    if firstWord == '-gr':
-                        retainedAnyFileDays = flagValue
-                    if firstWord == '-gd':
-                        anyFilePaths = [x for x in flagValue.split(',')]
-                        anyFilePaths = [p.replace('%SID', SID) for p in anyFilePaths]
-                    if firstWord == '-gw':
-                        anyFileWords = [x for x in flagValue.split(',')]
-                    if firstWord == '-gm':
-                        anyFileMaxDepth = flagValue
-                    if firstWord == '-zb':
-                        zipBackupLogsSizeLimit = flagValue
-                    if firstWord == '-zp':
-                        zipBackupPath = flagValue
-                    if firstWord == '-zl':
-                        zipLinks = flagValue
-                    if firstWord == '-zo':
-                        zipOut = flagValue
-                    if firstWord == '-zk':
-                        zipKeep = flagValue
-                    if firstWord == '-ar':
-                        minRetainedAlertDays = flagValue
-                    if firstWord == '-kr':
-                        minRetainedObjLockDays = flagValue
-                    if firstWord == '-ao':
-                        outputAlerts = flagValue
-                    if firstWord == '-ad':
-                        outputDeletedAlerts = flagValue
-                    if firstWord == '-om':
-                        objHistMaxSize = flagValue
-                    if firstWord == '-oo':
-                        outputObjHist = flagValue                        
-                    if firstWord == '-lr':
-                        maxFreeLogsegments = flagValue
-                    if firstWord == '-eh':
-                        minRetainedDaysForHandledEvents = flagValue
-                    if firstWord == '-eu':
-                        minRetainedDaysForEvents = flagValue
-                    if firstWord == '-ur':
-                        retainedAuditLogDays = flagValue
-                    if firstWord == '-pe':
-                        pendingEmailsDays = flagValue
-                    if firstWord == '-fl':
-                        fragmentationLimit = flagValue
-                    if firstWord == '-fo':
-                        outputFragmentation = flagValue
-                    if firstWord == '-rc':
-                        rcContainers = flagValue
-                    if firstWord == '-ro':
-                        outputRcContainers = flagValue
-                    if firstWord == '-cc':
-                        maxRawComp = flagValue   
-                    if firstWord == '-ce':
-                        maxEstComp = flagValue
-                    if firstWord == '-cr':
-                        maxRowComp = flagValue
-                    if firstWord == '-cs':
-                        maxMemComp = flagValue
-                    if firstWord == '-cd':
-                        minDistComp = flagValue
-                    if firstWord == '-cq':
-                        maxQuotaComp = flagValue                        
-                    if firstWord == '-cu':
-                        maxUDIVComp = flagValue
-                    if firstWord == '-cb':
-                        maxBLOCKComp = flagValue
-                    if firstWord == '-cp':
-                        partComp = flagValue
-                    if firstWord == '-cm':
-                        mergeBeforeComp = flagValue
-                    if firstWord == '-co':
-                        outComp = flagValue
-                    if firstWord == '-vs':
-                        createVTStat = flagValue
-                    if firstWord == '-vt':
-                        defaultVTStatType = flagValue
-                    if firstWord == '-vn':
-                        maxRowsForDefaultVT = flagValue
-                    if firstWord == '-vtt':
-                        largeVTStatType = flagValue
-                    if firstWord == '-vto':
-                        otherDBVTStatType = flagValue
-                    if firstWord == '-vl':
-                        vtSchemas = [x for x in flagValue.split(',')]
-                    if firstWord == '-vr':
-                        ignore2ndMon = flagValue
-                    if firstWord == '-vnr':
-                        refreshAge = flagValue
-                    if firstWord == '-ir':
-                        minRetainedIniDays = flagValue
-                    if firstWord == '-es':
-                        execute_sql = flagValue
-                    if firstWord == '-os':
-                        out_sql = flagValue
-                    if firstWord == '-op':
-                        out_path = flagValue
-                    if firstWord == '-of':
-                        out_prefix = flagValue
-                    if firstWord == '-or':
-                        minRetainedOutputDays = flagValue
-                    if firstWord == '-oi':
-                        online_test_interval = flagValue
-                    if firstWord == '-fs':
-                        file_system = flagValue
-                    if firstWord == '-if':
-                        ignore_filesystems = [x for x in flagValue.split(',')]
-                    if firstWord == '-df':
-                        do_df_check = flagValue
-                    if firstWord == '-hci':
-                        hanacleaner_interval = flagValue                    
-                    if firstWord == '-so':
-                        std_out = flagValue
-                    if firstWord == '-ssl':
-                        ssl = flagValue
-                    if firstWord == '-vlh':
-                        virtual_local_host = flagValue
-                    if firstWord == '-k':
-                        dbuserkeys = [x for x in flagValue.split(',')]
-                    if firstWord == '-dbs':
-                        dbases = [x for x in flagValue.split(',')]
-                    if firstWord == '-en': 
-                        email_notif = [x for x in flagValue.split(',')]
+                    minRetainedBackups                = getParameterFromFile(firstWord, '-be', flagValue, flag_file, flag_log, minRetainedBackups)
+                    minRetainedDays                   = getParameterFromFile(firstWord, '-bd', flagValue, flag_file, flag_log, minRetainedDays)
+                    deleteBackups                     = getParameterFromFile(firstWord, '-bb', flagValue, flag_file, flag_log, deleteBackups)
+                    outputCatalog                     = getParameterFromFile(firstWord, '-bo', flagValue, flag_file, flag_log, outputCatalog)
+                    outputDeletedCatalog              = getParameterFromFile(firstWord, '-br', flagValue, flag_file, flag_log, outputDeletedCatalog)
+                    outputNDeletedLBEntries           = getParameterFromFile(firstWord, '-bn', flagValue, flag_file, flag_log, outputNDeletedLBEntries)
+                    retainedTraceContentDays          = getParameterFromFile(firstWord, '-tc', flagValue, flag_file, flag_log, retainedTraceContentDays)
+                    retainedExpensiveTraceContentDays = getParameterFromFile(firstWord, '-te', flagValue, flag_file, flag_log, retainedExpensiveTraceContentDays)
+                    backupTraceContent                = getParameterFromFile(firstWord, '-tcb', flagValue, flag_file, flag_log, backupTraceContent)
+                    backupTraceDirectory              = getParameterFromFile(firstWord, '-tbd', flagValue, flag_file, flag_log, backupTraceDirectory)
+                    timeOutForMove                    = getParameterFromFile(firstWord, '-tmo', flagValue, flag_file, flag_log, timeOutForMove)
+                    retainedTraceFilesDays            = getParameterFromFile(firstWord, '-tf', flagValue, flag_file, flag_log, retainedTraceFilesDays)
+                    outputTraces                      = getParameterFromFile(firstWord, '-to', flagValue, flag_file, flag_log, outputTraces)
+                    outputRemovedTraces               = getParameterFromFile(firstWord, '-td', flagValue, flag_file, flag_log, outputRemovedTraces)
+                    retainedDumpDays                  = getParameterFromFile(firstWord, '-dr', flagValue, flag_file, flag_log, retainedDumpDays)
+                    retainedAnyFileDays               = getParameterFromFile(firstWord, '-gr', flagValue, flag_file, flag_log, retainedAnyFileDays)
+                    anyFilePaths                      = getParameterListFromFile(firstWord, '-gd', flagValue, flag_file, flag_log, anyFilePaths)
+                    anyFilePaths                      = [p.replace('%SID', SID) for p in anyFilePaths]
+                    anyFileWords                      = getParameterListFromFile(firstWord, '-gw', flagValue, flag_file, flag_log, anyFileWords)
+                    anyFileMaxDepth                   = getParameterFromFile(firstWord, '-gm', flagValue, flag_file, flag_log, anyFileMaxDepth)
+                    zipBackupLogsSizeLimit            = getParameterFromFile(firstWord, '-zb', flagValue, flag_file, flag_log, zipBackupLogsSizeLimit)
+                    zipBackupPath                     = getParameterFromFile(firstWord, '-zp', flagValue, flag_file, flag_log, zipBackupPath)
+                    zipLinks                          = getParameterFromFile(firstWord, '-zl', flagValue, flag_file, flag_log, zipLinks)
+                    zipOut                            = getParameterFromFile(firstWord, '-zo', flagValue, flag_file, flag_log, zipOut)
+                    zipKeep                           = getParameterFromFile(firstWord, '-zk', flagValue, flag_file, flag_log, zipKeep)
+                    minRetainedAlertDays              = getParameterFromFile(firstWord, '-ar', flagValue, flag_file, flag_log, minRetainedAlertDays)
+                    minRetainedObjLockDays            = getParameterFromFile(firstWord, '-kr', flagValue, flag_file, flag_log, minRetainedObjLockDays)
+                    outputAlerts                      = getParameterFromFile(firstWord, '-ao', flagValue, flag_file, flag_log, outputAlerts)
+                    outputDeletedAlerts               = getParameterFromFile(firstWord, '-ad', flagValue, flag_file, flag_log, outputDeletedAlerts)
+                    objHistMaxSize                    = getParameterFromFile(firstWord, '-om', flagValue, flag_file, flag_log, objHistMaxSize)
+                    outputObjHist                     = getParameterFromFile(firstWord, '-oo', flagValue, flag_file, flag_log, outputObjHist)
+                    maxFreeLogsegments                = getParameterFromFile(firstWord, '-lr', flagValue, flag_file, flag_log, maxFreeLogsegments)
+                    minRetainedDaysForHandledEvents   = getParameterFromFile(firstWord, '-eh', flagValue, flag_file, flag_log, minRetainedDaysForHandledEvents)
+                    minRetainedDaysForEvents          = getParameterFromFile(firstWord, '-eu', flagValue, flag_file, flag_log, minRetainedDaysForEvents)
+                    retainedAuditLogDays              = getParameterFromFile(firstWord, '-ur', flagValue, flag_file, flag_log, retainedAuditLogDays)
+                    pendingEmailsDays                 = getParameterFromFile(firstWord, '-pe', flagValue, flag_file, flag_log, pendingEmailsDays)
+                    fragmentationLimit                = getParameterFromFile(firstWord, '-fl', flagValue, flag_file, flag_log, fragmentationLimit)
+                    outputFragmentation               = getParameterFromFile(firstWord, '-fo', flagValue, flag_file, flag_log, outputFragmentation)
+                    rcContainers                      = getParameterFromFile(firstWord, '-rc', flagValue, flag_file, flag_log, rcContainers)
+                    outputRcContainers                = getParameterFromFile(firstWord, '-ro', flagValue, flag_file, flag_log, outputRcContainers)
+                    maxRawComp                        = getParameterFromFile(firstWord, '-cc', flagValue, flag_file, flag_log, maxRawComp)
+                    maxEstComp                        = getParameterFromFile(firstWord, '-ce', flagValue, flag_file, flag_log, maxEstComp)
+                    maxRowComp                        = getParameterFromFile(firstWord, '-cr', flagValue, flag_file, flag_log, maxRowComp)
+                    maxMemComp                        = getParameterFromFile(firstWord, '-cs', flagValue, flag_file, flag_log, maxMemComp)
+                    minDistComp                       = getParameterFromFile(firstWord, '-cd', flagValue, flag_file, flag_log, minDistComp)
+                    maxQuotaComp                      = getParameterFromFile(firstWord, '-cq', flagValue, flag_file, flag_log, maxQuotaComp)
+                    maxUDIVComp                       = getParameterFromFile(firstWord, '-cu', flagValue, flag_file, flag_log, maxUDIVComp)
+                    maxBLOCKComp                      = getParameterFromFile(firstWord, '-cb', flagValue, flag_file, flag_log, maxBLOCKComp)
+                    partComp                          = getParameterFromFile(firstWord, '-cp', flagValue, flag_file, flag_log, partComp)
+                    mergeBeforeComp                   = getParameterFromFile(firstWord, '-cm', flagValue, flag_file, flag_log, mergeBeforeComp)
+                    outComp                           = getParameterFromFile(firstWord, '-co', flagValue, flag_file, flag_log, outComp)
+                    createVTStat                      = getParameterFromFile(firstWord, '-vs', flagValue, flag_file, flag_log, createVTStat)
+                    defaultVTStatType                 = getParameterFromFile(firstWord, '-vt', flagValue, flag_file, flag_log, defaultVTStatType)
+                    maxRowsForDefaultVT               = getParameterFromFile(firstWord, '-vn', flagValue, flag_file, flag_log, maxRowsForDefaultVT)
+                    largeVTStatType                   = getParameterFromFile(firstWord, '-vtt', flagValue, flag_file, flag_log, largeVTStatType)
+                    otherDBVTStatType                 = getParameterFromFile(firstWord, '-vto', flagValue, flag_file, flag_log, otherDBVTStatType)
+                    vtSchemas                         = getParameterListFromFile(firstWord, '-vl', flagValue, flag_file, flag_log, vtSchemas)
+                    ignore2ndMon                      = getParameterFromFile(firstWord, '-vr', flagValue, flag_file, flag_log, ignore2ndMon)
+                    refreshAge                        = getParameterFromFile(firstWord, '-vnr', flagValue, flag_file, flag_log, refreshAge)
+                    minRetainedIniDays                = getParameterFromFile(firstWord, '-ir', flagValue, flag_file, flag_log, minRetainedIniDays)
+                    execute_sql                       = getParameterFromFile(firstWord, '-es', flagValue, flag_file, flag_log, execute_sql)
+                    out_sql                           = getParameterFromFile(firstWord, '-os', flagValue, flag_file, flag_log, out_sql)
+                    out_path                          = getParameterFromFile(firstWord, '-op', flagValue, flag_file, flag_log, out_path)
+                    out_prefix                        = getParameterFromFile(firstWord, '-of', flagValue, flag_file, flag_log, out_prefix)
+                    minRetainedOutputDays             = getParameterFromFile(firstWord, '-or', flagValue, flag_file, flag_log, minRetainedOutputDays)
+                    out_config                        = getParameterFromFile(firstWord, '-oc', flagValue, flag_file, flag_log, out_config)
+                    online_test_interval              = getParameterFromFile(firstWord, '-oi', flagValue, flag_file, flag_log, online_test_interval)
+                    file_system                       = getParameterFromFile(firstWord, '-fs', flagValue, flag_file, flag_log, file_system)
+                    ignore_filesystems                = getParameterListFromFile(firstWord, '-if', flagValue, flag_file, flag_log, ignore_filesystems)
+                    do_df_check                       = getParameterFromFile(firstWord, '-df', flagValue, flag_file, flag_log, do_df_check)
+                    hanacleaner_interval              = getParameterFromFile(firstWord, '-hci', flagValue, flag_file, flag_log, hanacleaner_interval)
+                    std_out                           = getParameterFromFile(firstWord, '-so', flagValue, flag_file, flag_log, std_out)
+                    ssl                               = getParameterFromFile(firstWord, '-ssl', flagValue, flag_file, flag_log, ssl)
+                    virtual_local_host                = getParameterFromFile(firstWord, '-vlh', flagValue, flag_file, flag_log, virtual_local_host)
+                    dbuserkeys                        = getParameterListFromFile(firstWord, '-k', flagValue, flag_file, flag_log, dbuserkeys)
+                    dbases                            = getParameterListFromFile(firstWord, '-', flagValue, flag_file, flag_log, dbases)
+                    email_notif                       = getParameterFromFile(firstWord, '-en', flagValue, flag_file, flag_log, email_notif)
 
-    #####################   INPUT ARGUMENTS (these would overwrite whats in the configuration file)   ####################
+    #####################   INPUT ARGUMENTS (these would overwrite whats in the configuration file(s))   ####################
     for word in sys.argv:
         if word[0:1] == '-':
-            checkIfAcceptedFlag(word)     
-    if '-h' in sys.argv or '--help' in sys.argv:
-        printHelp()
-    if '-d' in sys.argv or '--disclaimer' in sys.argv:
-        printDisclaimer()
-    if '-be' in sys.argv:
-        minRetainedBackups = sys.argv[sys.argv.index('-be') + 1]
-    if '-bd' in sys.argv:
-        minRetainedDays = sys.argv[sys.argv.index('-bd') + 1]
-    if '-bb' in sys.argv:
-        deleteBackups = sys.argv[sys.argv.index('-bb') + 1]
-    if '-bo' in sys.argv:
-        outputCatalog = sys.argv[sys.argv.index('-bo') + 1]
-    if '-br' in sys.argv:
-        outputDeletedCatalog = sys.argv[sys.argv.index('-br') + 1]
-    if '-bn' in sys.argv:
-        outputNDeletedLBEntries = sys.argv[sys.argv.index('-bn') + 1]
-    if '-tc' in sys.argv:
-        retainedTraceContentDays = sys.argv[sys.argv.index('-tc') + 1]
-    if '-te' in sys.argv:
-        retainedExpensiveTraceContentDays = sys.argv[sys.argv.index('-te') + 1]
-    if '-tcb' in sys.argv:
-        backupTraceContent = sys.argv[sys.argv.index('-tcb') + 1]
-    if '-tbd' in sys.argv:
-        backupTraceDirectory = sys.argv[sys.argv.index('-tbd') + 1]
-    if '-tmo' in sys.argv:
-        timeOutForMove = sys.argv[sys.argv.index('-tmo') + 1]
-    if '-tf' in sys.argv:
-        retainedTraceFilesDays = sys.argv[sys.argv.index('-tf') + 1]
-    if '-to' in sys.argv:
-        outputTraces = sys.argv[sys.argv.index('-to') + 1]
-    if '-td' in sys.argv:
-        outputRemovedTraces = sys.argv[sys.argv.index('-td') + 1]
-    if '-dr' in sys.argv:
-        retainedDumpDays = sys.argv[sys.argv.index('-dr') + 1]
-    if '-gr' in sys.argv:
-        retainedAnyFileDays = sys.argv[sys.argv.index('-gr') + 1]
-    if '-gd' in sys.argv:
-        anyFilePaths = [x for x in sys.argv[  sys.argv.index('-gd') + 1   ].split(',')]
-        anyFilePaths = [p.replace('%SID', SID) for p in anyFilePaths]
-    if '-gw' in sys.argv:
-        anyFileWords = [x for x in sys.argv[  sys.argv.index('-gw') + 1   ].split(',')]
-    if '-gm' in sys.argv:
-        anyFileMaxDepth = sys.argv[sys.argv.index('-gm') + 1]
-    if '-zb' in sys.argv:
-        zipBackupLogsSizeLimit = sys.argv[sys.argv.index('-zb') + 1]
-    if '-zp' in sys.argv:
-        zipBackupPath = sys.argv[sys.argv.index('-zp') + 1]
-    if '-zl' in sys.argv:
-        zipLinks = sys.argv[sys.argv.index('-zl') + 1]
-    if '-zo' in sys.argv:
-        zipOut = sys.argv[sys.argv.index('-zo') + 1]
-    if '-zk' in sys.argv:
-        zipKeep = sys.argv[sys.argv.index('-zk') + 1]
-    if '-ar' in sys.argv:
-        minRetainedAlertDays = sys.argv[sys.argv.index('-ar') + 1]
-    if '-kr' in sys.argv:
-        minRetainedObjLockDays = sys.argv[sys.argv.index('-kr') + 1]
-    if '-ao' in sys.argv:
-        outputAlerts = sys.argv[sys.argv.index('-ao') + 1]
-    if '-ad' in sys.argv:
-        outputDeletedAlerts = sys.argv[sys.argv.index('-ad') + 1]
-    if '-om' in sys.argv:
-        objHistMaxSize = sys.argv[sys.argv.index('-om') + 1]
-    if '-oo' in sys.argv:
-        outputObjHist = sys.argv[sys.argv.index('-oo') + 1]
-    if '-lr' in sys.argv:
-        maxFreeLogsegments = sys.argv[sys.argv.index('-lr') + 1]
-    if '-eh' in sys.argv:
-        minRetainedDaysForHandledEvents = sys.argv[sys.argv.index('-eh') + 1]
-    if '-eu' in sys.argv:
-        minRetainedDaysForEvents = sys.argv[sys.argv.index('-eu') + 1]
-    if '-ur' in sys.argv:
-        retainedAuditLogDays = sys.argv[sys.argv.index('-ur') + 1]  
-    if '-pe' in sys.argv:
-        pendingEmailsDays = sys.argv[sys.argv.index('-pe') + 1]
-    if '-fl' in sys.argv:
-        fragmentationLimit = sys.argv[sys.argv.index('-fl') + 1]
-    if '-fo' in sys.argv:
-        outputFragmentation = sys.argv[sys.argv.index('-fo') + 1]
-    if '-rc' in sys.argv:
-        rcContainers = sys.argv[sys.argv.index('-rc') + 1]
-    if '-ro' in sys.argv:
-        outputRcContainers = sys.argv[sys.argv.index('-ro') + 1]
-    if '-cc' in sys.argv:
-        maxRawComp = sys.argv[sys.argv.index('-cc') + 1]
-    if '-ce' in sys.argv:
-        maxEstComp = sys.argv[sys.argv.index('-ce') + 1]
-    if '-cr' in sys.argv:
-        maxRowComp = sys.argv[sys.argv.index('-cr') + 1]    
-    if '-cs' in sys.argv:
-        maxMemComp = sys.argv[sys.argv.index('-cs') + 1]       
-    if '-cd' in sys.argv:
-        minDistComp = sys.argv[sys.argv.index('-cd') + 1]
-    if '-cq' in sys.argv:
-        maxQuotaComp = sys.argv[sys.argv.index('-cq') + 1]
-    if '-cu' in sys.argv:
-        maxUDIVComp = sys.argv[sys.argv.index('-cu') + 1]
-    if '-cb' in sys.argv:
-        maxBLOCKComp = sys.argv[sys.argv.index('-cb') + 1]
-    if '-cp' in sys.argv:
-        partComp = sys.argv[sys.argv.index('-cp') + 1]
-    if '-cm' in sys.argv:
-        mergeBeforeComp = sys.argv[sys.argv.index('-cm') + 1]
-    if '-co' in sys.argv:
-        outComp = sys.argv[sys.argv.index('-co') + 1]
-    if '-vs' in sys.argv:
-        createVTStat = sys.argv[sys.argv.index('-vs') + 1]
-    if '-vt' in sys.argv:
-        defaultVTStatType = sys.argv[sys.argv.index('-vt') + 1]    
-    if '-vn' in sys.argv:
-        maxRowsForDefaultVT = sys.argv[sys.argv.index('-vn') + 1] 
-    if '-vtt' in sys.argv:
-        largeVTStatType = sys.argv[sys.argv.index('-vtt') + 1]  
-    if '-vto' in sys.argv:
-        otherDBVTStatType = sys.argv[sys.argv.index('-vto') + 1]  
-    if '-vl' in sys.argv:
-        vtSchemas = [x for x in sys.argv[  sys.argv.index('-vl') + 1   ].split(',')]
-    if '-vr' in sys.argv:
-        ignore2ndMon = sys.argv[sys.argv.index('-vr') + 1]
-    if '-vnr' in sys.argv:
-        refreshAge = sys.argv[sys.argv.index('-vnr') + 1] 
-    if '-ir' in sys.argv:
-        minRetainedIniDays = sys.argv[sys.argv.index('-ir') + 1]
-    if '-es' in sys.argv:
-        execute_sql = sys.argv[sys.argv.index('-es') + 1]
-    if '-os' in sys.argv:
-        out_sql = sys.argv[sys.argv.index('-os') + 1]
-    if '-op' in sys.argv:
-        out_path = sys.argv[sys.argv.index('-op') + 1]
-    if '-of' in sys.argv:
-        out_prefix = sys.argv[sys.argv.index('-of') + 1]
-    if '-or' in sys.argv:
-        minRetainedOutputDays = sys.argv[sys.argv.index('-or') + 1]
-    if '-oi' in sys.argv:
-        online_test_interval = sys.argv[sys.argv.index('-oi') + 1]
-    if '-fs' in sys.argv:
-        file_system = sys.argv[sys.argv.index('-fs') + 1]
-    if '-if' in sys.argv:
-        ignore_filesystems = [x for x in sys.argv[  sys.argv.index('-if') + 1   ].split(',')]
-    if '-df' in sys.argv:
-        do_df_check = sys.argv[sys.argv.index('-df') + 1]
-    if '-hci' in sys.argv:
-        hanacleaner_interval = sys.argv[sys.argv.index('-hci') + 1]
-    if '-ff' in sys.argv:
-        flag_file = sys.argv[sys.argv.index('-ff') + 1]
-        flag_file = flag_file.replace('%SID', SID)
-    if '-so' in sys.argv:
-        std_out = sys.argv[sys.argv.index('-so') + 1]
-    if '-ssl' in sys.argv:
-        ssl = sys.argv[sys.argv.index('-ssl') + 1]
-    if '-vlh' in sys.argv:
-        virtual_local_host = sys.argv[sys.argv.index('-vlh') + 1]
-    if '-k' in sys.argv:
-        dbuserkeys = [x for x in sys.argv[  sys.argv.index('-k') + 1   ].split(',')]
-    if '-dbs' in sys.argv:
-        dbases = [x for x in sys.argv[  sys.argv.index('-dbs') + 1   ].split(',')]
-    if '-en' in sys.argv:
-        email_notif = [x for x in sys.argv[  sys.argv.index('-en') + 1   ].split(',')]
+            checkIfAcceptedFlag(word)
+    minRetainedBackups                = getParameterFromCommandLine(sys.argv, '-be', flag_log, minRetainedBackups)
+    minRetainedDays                   = getParameterFromCommandLine(sys.argv, '-bd', flag_log, minRetainedDays)
+    deleteBackups                     = getParameterFromCommandLine(sys.argv, '-bb', flag_log,  deleteBackups)
+    outputCatalog                     = getParameterFromCommandLine(sys.argv, '-bo', flag_log, outputCatalog)
+    outputDeletedCatalog              = getParameterFromCommandLine(sys.argv, '-br', flag_log, outputDeletedCatalog)
+    outputNDeletedLBEntries           = getParameterFromCommandLine(sys.argv, '-bn', flag_log, outputNDeletedLBEntries)
+    retainedTraceContentDays          = getParameterFromCommandLine(sys.argv, '-tc', flag_log, retainedTraceContentDays)
+    retainedExpensiveTraceContentDays = getParameterFromCommandLine(sys.argv, '-te', flag_log, retainedExpensiveTraceContentDays)
+    backupTraceContent                = getParameterFromCommandLine(sys.argv, '-tcb', flag_log, backupTraceContent)
+    backupTraceDirectory              = getParameterFromCommandLine(sys.argv, '-tbd', flag_log, backupTraceDirectory)
+    timeOutForMove                    = getParameterFromCommandLine(sys.argv, '-tmo', flag_log, timeOutForMove)
+    retainedTraceFilesDays            = getParameterFromCommandLine(sys.argv, '-tf', flag_log, retainedTraceFilesDays)
+    outputTraces                      = getParameterFromCommandLine(sys.argv, '-to', flag_log, outputTraces)
+    outputRemovedTraces               = getParameterFromCommandLine(sys.argv, '-td', flag_log, outputRemovedTraces)
+    retainedDumpDays                  = getParameterFromCommandLine(sys.argv, '-dr', flag_log, retainedDumpDays)
+    retainedAnyFileDays               = getParameterFromCommandLine(sys.argv, '-gr', flag_log, retainedAnyFileDays)
+    anyFilePaths                      = getParameterListFromCommandLine(sys.argv, '-gd', flag_log, anyFilePaths)
+    anyFilePaths                      = [p.replace('%SID', SID) for p in anyFilePaths]
+    anyFileWords                      = getParameterListFromCommandLine(sys.argv, '-gw', flag_log, anyFileWords)
+    anyFileMaxDepth                   = getParameterFromCommandLine(sys.argv, '-gm', flag_log, anyFileMaxDepth)
+    zipBackupLogsSizeLimit            = getParameterFromCommandLine(sys.argv, '-zb', flag_log, zipBackupLogsSizeLimit)
+    zipBackupPath                     = getParameterFromCommandLine(sys.argv, '-zp', flag_log, zipBackupPath)
+    zipLinks                          = getParameterFromCommandLine(sys.argv, '-zl', flag_log, zipLinks)
+    zipOut                            = getParameterFromCommandLine(sys.argv, '-zo', flag_log, zipOut)
+    zipKeep                           = getParameterFromCommandLine(sys.argv, '-zk', flag_log, zipKeep)
+    minRetainedAlertDays              = getParameterFromCommandLine(sys.argv, '-ar', flag_log, minRetainedAlertDays)
+    minRetainedObjLockDays            = getParameterFromCommandLine(sys.argv, '-kr', flag_log, minRetainedObjLockDays)
+    outputAlerts                      = getParameterFromCommandLine(sys.argv, '-ao', flag_log, outputAlerts)
+    outputDeletedAlerts               = getParameterFromCommandLine(sys.argv, '-ad', flag_log, outputDeletedAlerts)
+    objHistMaxSize                    = getParameterFromCommandLine(sys.argv, '-om', flag_log, objHistMaxSize)
+    outputObjHist                     = getParameterFromCommandLine(sys.argv, '-oo', flag_log, outputObjHist)
+    maxFreeLogsegments                = getParameterFromCommandLine(sys.argv, '-lr', flag_log, maxFreeLogsegments)
+    minRetainedDaysForHandledEvents   = getParameterFromCommandLine(sys.argv, '-eh', flag_log, minRetainedDaysForHandledEvents)
+    minRetainedDaysForEvents          = getParameterFromCommandLine(sys.argv, '-eu', flag_log, minRetainedDaysForEvents)
+    retainedAuditLogDays              = getParameterFromCommandLine(sys.argv, '-ur', flag_log, retainedAuditLogDays)
+    pendingEmailsDays                 = getParameterFromCommandLine(sys.argv, '-pe', flag_log, pendingEmailsDays)
+    fragmentationLimit                = getParameterFromCommandLine(sys.argv, '-fl', flag_log, fragmentationLimit)
+    outputFragmentation               = getParameterFromCommandLine(sys.argv, '-fo', flag_log, outputFragmentation)
+    rcContainers                      = getParameterFromCommandLine(sys.argv, '-rc', flag_log, rcContainers)
+    outputRcContainers                = getParameterFromCommandLine(sys.argv, '-ro', flag_log, outputRcContainers)
+    maxRawComp                        = getParameterFromCommandLine(sys.argv, '-cc', flag_log, maxRawComp)
+    maxEstComp                        = getParameterFromCommandLine(sys.argv, '-ce', flag_log, maxEstComp)
+    maxRowComp                        = getParameterFromCommandLine(sys.argv, '-cr', flag_log, maxRowComp)
+    maxMemComp                        = getParameterFromCommandLine(sys.argv, '-cs', flag_log, maxMemComp)
+    minDistComp                       = getParameterFromCommandLine(sys.argv, '-cd', flag_log, minDistComp)
+    maxQuotaComp                      = getParameterFromCommandLine(sys.argv, '-cq', flag_log, maxQuotaComp)
+    maxUDIVComp                       = getParameterFromCommandLine(sys.argv, '-cu', flag_log, maxUDIVComp)
+    maxBLOCKComp                      = getParameterFromCommandLine(sys.argv, '-cb', flag_log, maxBLOCKComp)
+    partComp                          = getParameterFromCommandLine(sys.argv, '-cp', flag_log, partComp)
+    mergeBeforeComp                   = getParameterFromCommandLine(sys.argv, '-cm', flag_log, mergeBeforeComp)
+    outComp                           = getParameterFromCommandLine(sys.argv, '-co', flag_log, outComp)
+    createVTStat                      = getParameterFromCommandLine(sys.argv, '-vs', flag_log, createVTStat)
+    defaultVTStatType                 = getParameterFromCommandLine(sys.argv, '-vt', flag_log, defaultVTStatType)
+    maxRowsForDefaultVT               = getParameterFromCommandLine(sys.argv, '-vn', flag_log, maxRowsForDefaultVT)
+    largeVTStatType                   = getParameterFromCommandLine(sys.argv, '-vtt', flag_log, largeVTStatType)
+    otherDBVTStatType                 = getParameterFromCommandLine(sys.argv, '-vto', flag_log, otherDBVTStatType)
+    vtSchemas                         = getParameterListFromCommandLine(sys.argv, '-vl', flag_log, vtSchemas)
+    ignore2ndMon                      = getParameterFromCommandLine(sys.argv, '-vr', flag_log, ignore2ndMon)
+    refreshAge                        = getParameterFromCommandLine(sys.argv, '-vnr', flag_log, refreshAge)
+    minRetainedIniDays                = getParameterFromCommandLine(sys.argv, '-ir', flag_log, minRetainedIniDays)
+    execute_sql                       = getParameterFromCommandLine(sys.argv, '-es', flag_log, execute_sql)
+    out_sql                           = getParameterFromCommandLine(sys.argv, '-os', flag_log, out_sql)
+    out_path                          = getParameterFromCommandLine(sys.argv, '-op', flag_log, out_path)
+    out_prefix                        = getParameterFromCommandLine(sys.argv, '-of', flag_log, out_prefix)
+    minRetainedOutputDays             = getParameterFromCommandLine(sys.argv, '-or', flag_log, minRetainedOutputDays)
+    out_config                        = getParameterFromCommandLine(sys.argv, '-oc', flag_log, out_config)
+    online_test_interval              = getParameterFromCommandLine(sys.argv, '-oi', flag_log, online_test_interval)
+    file_system                       = getParameterFromCommandLine(sys.argv, '-fs', flag_log, file_system)
+    ignore_filesystems                = getParameterListFromCommandLine(sys.argv, '-if', flag_log, ignore_filesystems)
+    do_df_check                       = getParameterFromCommandLine(sys.argv, '-df', flag_log, do_df_check)
+    hanacleaner_interval              = getParameterFromCommandLine(sys.argv, '-hci', flag_log, hanacleaner_interval)
+    std_out                           = getParameterFromCommandLine(sys.argv, '-so', flag_log, std_out)
+    ssl                               = getParameterFromCommandLine(sys.argv, '-ssl', flag_log, ssl)
+    virtual_local_host                = getParameterFromCommandLine(sys.argv, '-vlh', flag_log, virtual_local_host)
+    dbuserkeys                        = getParameterListFromCommandLine(sys.argv, '-k', flag_log, dbuserkeys)
+    dbases                            = getParameterListFromCommandLine(sys.argv, '-', flag_log, dbases)
+    email_notif                       = getParameterFromCommandLine(sys.argv, '-en', flag_log, email_notif)
 
     ############ GET LOCAL HOST ##########
     local_host = subprocess.check_output("hostname", shell=True).replace('\n','') if virtual_local_host == "" else virtual_local_host   
@@ -1881,6 +1753,8 @@ def main():
     if minRetainedOutputDays >= 0 and out_path == "":
         log("INPUT ERROR: -op has to be specified if -or is. Please see --help for more information.", logman)
         os._exit(1)
+    ### out_config, -oc
+    out_config = checkAndConvertBooleanFlag(out_config, "-oc", logman)
     ### online_test_interval, -oi
     if not is_integer(online_test_interval):
         log("INPUT ERROR: -oi must be an integer. Please see --help for more information.", logman)
@@ -1939,10 +1813,13 @@ def main():
                 if DATABASE:
                     db_string = 'on DB '+DATABASE
                 whoami = subprocess.check_output('whoami', shell=True).replace('\n','')
+                parameter_string = ""
+                if out_config:
+                    parameter_string = "\n".join("{}\t{}".format(k, "= "+v[0]+" from "+v[1]) for k, v in flag_log.items())
                 if sqlman.execute:
-                    startstring = "***********************************************************\n"+datetime.now().strftime("%Y-%m-%d %H:%M:%S")+"\nhanacleaner as "+whoami+" by "+dbuserkey+" on "+SID+"("+local_dbinstance+") "+db_string+" with \n"+" ".join(sys.argv)+"\nCleanup Statements will be executed (-es is default true)\nBefore using HANACleaner read the disclaimer!\npython hanacleaner.py --disclaimer\n***********************************************************" 
+                    startstring = "***********************************************************\n"+datetime.now().strftime("%Y-%m-%d %H:%M:%S")+"\nhanacleaner as "+whoami+" by "+dbuserkey+" on "+SID+"("+local_dbinstance+") "+db_string+" with \n"+" ".join(sys.argv)+"\nCleanup Statements will be executed (-es is default true)\n"+parameter_string+"\nBefore using HANACleaner read the disclaimer!\npython hanacleaner.py --disclaimer\n***********************************************************" 
                 else:
-                    startstring = "*********************************************\n"+datetime.now().strftime("%Y-%m-%d %H:%M:%S")+"\nhanacleaner as "+whoami+" by "+dbuserkey+"\non "+SID+"("+local_dbinstance+") "+db_string+" with \n"+" ".join(sys.argv)+"\nCleanup Statements will NOT be executed\nBefore using HANACleaner read the disclaimer!\npython hanacleaner.py --disclaimer\n*********************************************"
+                    startstring = "*********************************************\n"+datetime.now().strftime("%Y-%m-%d %H:%M:%S")+"\nhanacleaner as "+whoami+" by "+dbuserkey+"\non "+SID+"("+local_dbinstance+") "+db_string+" with \n"+" ".join(sys.argv)+"\nCleanup Statements will NOT be executed\n"+parameter_string+"\nBefore using HANACleaner read the disclaimer!\npython hanacleaner.py --disclaimer\n*********************************************"
                 log(startstring, logman)
                 emailmessage += startstring+"\n"
                 ############ ONLINE TESTS (OPTIONAL) ##########################
