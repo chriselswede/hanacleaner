@@ -178,7 +178,7 @@ def printHelp():
     print(" -of     output prefix, adds a string to the output file, default: ''   (not used)                                                 ")
     print(" -or     output retention days, logs in the paths specified with -op are only saved for this number of days, default: -1 (not used)")
     print(" -oc     output configuration [true/false], logs all parameters set by the flags and where the flags were set, i.e. what flag file ")
-    print("         (one of the files listed in -ff) or if it was set via a flag specifice on the command line, default = false               ")
+    print("         (one of the files listed in -ff) or if it was set via a flag specified on the command line, default = false               ")
     print(" -so     standard out switch [true/false], switch to write to standard out, default:  true                                         ")
     print("         ---- INSTANCE ONLINE CHECK ----                                                                                           ")
     print(" -oi     online test interval [seconds], < 0: HANACleaner does not check if online or secondary,           default: -1 (not used)  ")
@@ -208,11 +208,13 @@ def printHelp():
     print("         Note: Users with same name and password have to be maintained in all databases   , default: ''  (not used)                ")
     print("         Example:  -k PQLSYSDB -dbs SYSTEMDB, PQL                                                                                  ")
     print("         ---- EMAIL ----                                                                                                           ")
-    print(" -en     email notification, <recievers email>,<sender's email>,<mail server>                                                      ") 
-    print("                             example: -en you@ourcompany,me@ourcompany.com,smtp.intra.ourcompany.com                               ")
+    print(" -en     email notification for most fatal errors, <receiver 1's email>,<receiver 2's email>,... default:          (not used)      ") 
+    print(" -enc    email client, to explicitly specify the client (e.g mail, mailx, mutt,..), only useful if -en if used, default: mailx     ") 
+    print(" -ens    sender's email, to explicitly specify sender's email address, only useful if -en if used, default:    (configured used)   ")
+    print(" -enm    mail server, to explicitly specify the mail server, only useful if -en is used, default:     (configured used)            ")
     print('         NOTE: For this to work you have to install the linux program "sendmail" and add a line similar to                         ')
-    print("         DSsmtp.intra.ourcompany.com in the file sendmail.cf in /etc/mail/, see                                                    ")
-    print("         https://www.systutorials.com/5167/sending-email-using-mailx-in-linux-through-internal-smtp/                               ")
+    print('               DSsmtp.intra.ourcompany.com in the file sendmail.cf in /etc/mail/,                                                  ')
+    print("               see https://www.systutorials.com/5167/sending-email-using-mailx-in-linux-through-internal-smtp/                     ")
     print("                                                                                                                                   ")    
     print("                                                                                                                                   ")    
     print("EXAMPLE (trace files, statistics server alerts and backup catalog entries, i.e. not the backups themselves, older than 42 days     ")
@@ -243,8 +245,7 @@ def printHelp():
     print(" 4. Allow a two steps cleanup for general files, e.g. compress file older than a few hours and delete files older than some days   ")
     print(" 5. Check for multiple definitions of one flag, give ERROR, and STOP                                                               ")
     print(" 6. Move trace files instead of deleting ... --> not a good idea ... should not touch trace files from OS, only from HANA          ")
-    print(" 7. Change -en flag to allow multiple email recievers.                                                                             ")
-    print(" 8. Only send emails in case of some failure, either an found error or a catched error                                             ")
+    print(" 7. Only send emails in case of some failure, either an found error or a catched error                                             ")
     print("                                                                                                                                   ")
     print("AUTHOR: Christian Hansen                                                                                                           ")
     print("                                                                                                                                   ")
@@ -293,22 +294,33 @@ class SQLManager:
             self.hdbsql_jAaxU = hdbsql_string + " -j -A -a -x -U " + self.key
             self.hdbsql_jAQaxU = hdbsql_string + " -j -A -Q -a -x -U " + self.key
 
-
 class LogManager:
-    def __init__(self, log_path, out_prefix, print_to_std):
+    def __init__(self, log_path, out_prefix, print_to_std, emailSender):
         self.path = log_path
         self.out_prefix = out_prefix
         if self.out_prefix:
             self.out_prefix = self.out_prefix + "_"
         self.print_to_std = print_to_std
-        
+        self.emailSender = emailSender
+
 class EmailSender:
-    def __init__(self, recieverEmail, senderEmail, mailServer):
-        self.recieverEmail = recieverEmail
+    def __init__(self, receiverEmails, emailClient, senderEmail, mailServer, SID):
         self.senderEmail = senderEmail
+        self.emailClient = emailClient
+        self.receiverEmails = receiverEmails
         self.mailServer = mailServer
+        self.SID = SID
     def printEmailSender(self):
-        print "Reciever Email: ", self.recieverEmail, "  Sender Email: ", self.senderEmail, "  Mail Server: ", self.mailServer 
+        print "Email Client: ", self.emailClient
+        if self.senderEmail:
+            print "Sender Email: ", self.senderEmail
+        else:
+            print "Configured sender email will be used."
+        if self.mailServer:
+            print "Mail Server: ", self.mailServer
+        else:
+            print "Configured mail server will be used."
+        print "Reciever Emails: ", self.recieverEmails
 
 ######################## FUNCTION DEFINITIONS ################################
 
@@ -323,7 +335,7 @@ def is_integer(s):
     except ValueError:
         return False
 
-def log(message, logmanager):
+def log(message, logmanager, sendEmail = False):
     if logmanager.print_to_std:
         print message
     if logmanager.path:
@@ -332,6 +344,15 @@ def log(message, logmanager):
         logfile.write(message+"\n")   
         logfile.flush()
         logfile.close()
+    if sendEmail and logmanager.emailSender:  #sends email IF this call of log() wants it AND IF -en flag has been specified with email(s)       
+        message = 'Hi Team, \n\nHANACleaner reports:\n\n'+message
+        mailstring = 'echo "'+message+'" | '+logmanager.emailSender.emailClient+' -s "Message from HANACleaner on '+logmanager.emailSender.SID+'" '
+        if logmanager.emailSender.mailServer:
+            mailstring += ' -S smtp=smtp://'+logmanager.emailSender.mailServer+' '
+        if logmanager.emailSender.senderEmail:
+            mailstring += ' -S from="'+logmanager.emailSender.senderEmail+'" '
+        mailstring += ",".join(logmanager.emailSender.receiverEmails)
+        output = subprocess.check_output(mailstring, shell=True)
 
 def try_execute_sql(sql, errorlog, sqlman, logman, exit_on_fail = True):
     succeeded = True
@@ -342,11 +363,13 @@ def try_execute_sql(sql, errorlog, sqlman, logman, exit_on_fail = True):
         if sqlman.execute:
             out = subprocess.check_output(sqlman.hdbsql_jAaxU + " \""+sql+"\"", shell=True)
     except:
-        log("ERROR: Could not execute\n"+sql, logman)
-        log(errorlog, logman)
+        errorMessage = "ERROR: Could not execute\n"+sql+"\n"+errorlog
         succeeded = False
         if exit_on_fail:
+            log(errorMessage, logman, True)
             os._exit(1)
+        else:
+            log(errorMessage, logman)
     return [out, succeeded]
 
 def is_email(s):
@@ -361,7 +384,7 @@ def hana_version_revision_maintenancerevision(sqlman, logman):
     hanarev = command_run.splitlines(1)[2].split('.')[2]
     hanamrev = command_run.splitlines(1)[2].split('.')[3]
     if not is_integer(hanarev):
-        log("ERROR: something went wrong checking hana revision.", logman)
+        log("ERROR: something went wrong checking hana revision.", logman, True)
         os._exit(1)
     return [int(hanaver), int(hanarev), int(hanamrev)]
     
@@ -423,7 +446,7 @@ def is_secondary(logman):
     return result 
 
 def checkIfAcceptedFlag(word):
-    if not word in ["-h", "--help", "-d", "--disclaimer", "-ff", "-be", "-bd", "-bb", "-bo", "-br", "-bn", "-tc", "-te", "-tcb", "-tbd", "-tmo", "-tf", "-to", "-td", "-dr", "-gr", "-gd", "-gw", "-gm", "-zb", "-zp", "-zl", "-zo", "-zk", "-ar", "-kr", "-ao", "-ad", "-om", "-oo", "-lr", "-eh", "-eu", "-ur", "-pe", "-fl", "-fo", "-rc", "-ro", "-cc", "-ce", "-cr", "-cs", "-cd", "-cq", "-cu", "-cb", "-cp", "-cm", "-co", "-vs", "-vt", "-vn", "-vtt", "-vto", "-vr", "-vnr", "-vl", "-ir", "-es", "-os", "-op", "-of", "-or", "-oc", "-oi", "-fs", "-if", "-df", "-hci", "-so", "-ssl", "-vlh", "-k", "-dbs", "-en"]:
+    if not word in ["-h", "--help", "-d", "--disclaimer", "-ff", "-be", "-bd", "-bb", "-bo", "-br", "-bn", "-tc", "-te", "-tcb", "-tbd", "-tmo", "-tf", "-to", "-td", "-dr", "-gr", "-gd", "-gw", "-gm", "-zb", "-zp", "-zl", "-zo", "-zk", "-ar", "-kr", "-ao", "-ad", "-om", "-oo", "-lr", "-eh", "-eu", "-ur", "-pe", "-fl", "-fo", "-rc", "-ro", "-cc", "-ce", "-cr", "-cs", "-cd", "-cq", "-cu", "-cb", "-cp", "-cm", "-co", "-vs", "-vt", "-vn", "-vtt", "-vto", "-vr", "-vnr", "-vl", "-ir", "-es", "-os", "-op", "-of", "-or", "-oc", "-oi", "-fs", "-if", "-df", "-hci", "-so", "-ssl", "-vlh", "-k", "-dbs", "-en", "-enc", "-ens", "-enm"]:
         print "INPUT ERROR: ", word, " is not one of the accepted input flags. Please see --help for more information."
         os._exit(1)
 
@@ -518,7 +541,7 @@ def clean_backup_catalog(minRetainedBackups, minRetainedDays, deleteBackups, out
     if outputCatalog or outputDeletedCatalog:
         nCatalogEntries = int(subprocess.check_output(sqlman.hdbsql_jAQaxU + " \"select count(*) from sys.m_backup_catalog\"", shell=True).strip(' '))
         if nCatalogEntries > 100000:
-            log("INPUT ERROR: Please do not use -br true or -bo true if your backup catalog is larger than 100000 entries!", logman)
+            log("INPUT ERROR: Please do not use -br true or -bo true if your backup catalog is larger than 100000 entries!", logman, True)
             os._exit(1)      
     nDataBackupCatalogEntriesBefore = int(subprocess.check_output(sqlman.hdbsql_jAQaxU + " \"SELECT COUNT(*) FROM sys.m_backup_catalog where entry_type_name != 'log backup'\"", shell=True).strip(' '))
     nLogBackupCatalogEntriesBefore = 0
@@ -580,7 +603,7 @@ def clean_trace_files(retainedTraceContentDays, retainedExpensiveTraceContentDay
         if backupTraceDirectory:
             if not DATABASE:
                 log("INPUT ERROR: If -tbd is used, either DATABASE must be specified in the key (see the manual of hdbuserstore), or -dbs must be specifed.", logman)
-                log("NOTE: -tbd is not supported for none MDC systems", logman)
+                log("NOTE: -tbd is not supported for none MDC systems", logman, True)
                 os._exit(1)
             if not os.path.exists(backupTraceDirectory):
                 os.makedirs(backupTraceDirectory)
@@ -677,7 +700,7 @@ def clean_alerts(minRetainedAlertDays, outputAlerts, outputDeletedAlerts, sqlman
     try:
         nbrAlertsBefore = int(subprocess.check_output(sqlman.hdbsql_jAQaxU + " \"SELECT COUNT(*) FROM _sys_statistics.statistics_alerts_base\"", shell=True).strip(' '))
     except: 
-        log("\nERROR: The user represented by the key "+sqlman.key+" could not find amount of alerts. \nOne possible reason for this is insufficient privilege, \ne.g. lack of the object privilege SELECT on the table _sys_statistics.statistics_alerts_base.\n", logman)
+        log("\nERROR: The user represented by the key "+sqlman.key+" could not find amount of alerts. \nOne possible reason for this is insufficient privilege, \ne.g. lack of the object privilege SELECT on the table _sys_statistics.statistics_alerts_base.\n", logman, True)
         os._exit(1)
     if nbrAlertsBefore > 10000 and (outputAlerts or outputDeletedAlerts):
         outputAlerts = False
@@ -702,12 +725,12 @@ def clean_alerts(minRetainedAlertDays, outputAlerts, outputDeletedAlerts, sqlman
     
 def clean_ini(minRetainedIniDays, version, revision, mrevision, sqlman, logman):
     if version < 2 or revision < 30:
-        log("\nERROR: the -ir flag is only supported starting with SAP HANA 2.0 SPS03. You run on SAP HANA "+str(version)+" revision "+str(revision)+" maintenance revision "+str(mrevision), logman)
+        log("\nERROR: the -ir flag is only supported starting with SAP HANA 2.0 SPS03. You run on SAP HANA "+str(version)+" revision "+str(revision)+" maintenance revision "+str(mrevision), logman, True)
         os._exit(1)
     try:
         nbrIniHistBefore = int(subprocess.check_output(sqlman.hdbsql_jAQaxU + " \"SELECT COUNT(*) FROM SYS.M_INIFILE_CONTENT_HISTORY\"", shell=True).strip(' '))
     except: 
-        log("\nERROR: The user represented by the key "+sqlman.key+" could not find amount of inifile history. \nOne possible reason for this is insufficient privilege, \ne.g. lack of the object privilege SELECT on the view SYS.M_INIFILE_CONTENT_HISTORY.\n", logman)
+        log("\nERROR: The user represented by the key "+sqlman.key+" could not find amount of inifile history. \nOne possible reason for this is insufficient privilege, \ne.g. lack of the object privilege SELECT on the view SYS.M_INIFILE_CONTENT_HISTORY.\n", logman, True)
         os._exit(1)
     d = datetime.today() - timedelta(days=minRetainedIniDays)
     sql = "ALTER SYSTEM CLEAR INIFILE CONTENT HISTORY UNTIL '"+str(d)+"'"
@@ -736,7 +759,7 @@ def clean_objhist(objHistMaxSize, outputObjHist, sqlman, logman):
     try:
         objHistSizeBefore = int(subprocess.check_output(sqlman.hdbsql_jAQaxU + " \"select disk_size from SYS.M_TABLE_PERSISTENCE_LOCATION_STATISTICS where table_name = 'OBJECT_HISTORY'\"", shell=True).strip(' '))
     except: 
-        log("\nERROR: The user represented by the key "+sqlman.key+" could not find size of object history. \nOne possible reason for this is insufficient privilege, \ne.g. lack of the object privilege SELECT on the table SYS.M_TABLE_PERSISTENCE_LOCATION_STATISTICS.\n", logman)
+        log("\nERROR: The user represented by the key "+sqlman.key+" could not find size of object history. \nOne possible reason for this is insufficient privilege, \ne.g. lack of the object privilege SELECT on the table SYS.M_TABLE_PERSISTENCE_LOCATION_STATISTICS.\n", logman, True)
         os._exit(1)  
     if objHistSizeBefore > objHistMaxSize*1000000:   #mb --> b 
         sql = "DELETE FROM _SYS_REPO.OBJECT_HISTORY WHERE (package_id, object_name, object_suffix, version_id) NOT IN (SELECT package_id, object_name, object_suffix, MAX(version_id) AS maxvid from _SYS_REPO.OBJECT_HISTORY GROUP BY package_id, object_name, object_suffix ORDER BY package_id, object_name, object_suffix)"
@@ -979,7 +1002,7 @@ def reclaim_rs_containers(outputRcContainers, sqlman, logman):
             try_execute_sql(sql, errorlog, sqlman, logman)          
     nTablesWithMultipleRSContainersAfter = int(subprocess.check_output(sqlman.hdbsql_jAQaxU + " \"SELECT COUNT(TABLE_NAME) FROM SYS.M_RS_TABLES WHERE CONTAINER_COUNT > 1\"", shell=True).strip(' '))
     if nTablesWithMultipleRSContainersAfter != 0:
-        log("\nERROR: Something went wrong. After reclaim of multiple row store table containers we still have "+str(nTablesWithMultipleRSContainersAfter)+" tables with multiple row store containers. Please investigate.", logman)
+        log("\nERROR: Something went wrong. After reclaim of multiple row store table containers we still have "+str(nTablesWithMultipleRSContainersAfter)+" tables with multiple row store containers. Please investigate.", logman, True)
         os._exit(1)
     return [str(nTablesWithMultipleRSContainersBefore), str(nUnnecessaryRSContainersBefore)]
 
@@ -1171,7 +1194,7 @@ def clean_anyfile(retainedAnyFileDays, anyFilePaths, anyFileWords, anyFileMaxDep
 def checkAndConvertBooleanFlag(boolean, flagstring, logman):     
     boolean = boolean.lower()
     if boolean not in ("false", "true"):
-        log("INPUT ERROR: "+flagstring+" must be either 'true' or 'false'. Please see --help for more information.", logman)
+        log("INPUT ERROR: "+flagstring+" must be either 'true' or 'false'. Please see --help for more information.", logman, True)
         os._exit(1)
     boolean = True if boolean == "true" else False
     return boolean
@@ -1206,7 +1229,10 @@ def main():
                                #     ENV : mo-fc8d991e0:30015
                                #     USER: SYSTEM
     dbases = ['']
-    email_notif = []
+    receiver_emails = None
+    email_client = 'mailx'   #default email client
+    senders_email = None
+    mail_server = None
     retainedTraceContentDays = "-1"
     retainedExpensiveTraceContentDays = "-1"
     retainedTraceFilesDays = "-1"
@@ -1375,7 +1401,10 @@ def main():
                     virtual_local_host                = getParameterFromFile(firstWord, '-vlh', flagValue, flag_file, flag_log, virtual_local_host)
                     dbuserkeys                        = getParameterListFromFile(firstWord, '-k', flagValue, flag_file, flag_log, dbuserkeys)
                     dbases                            = getParameterListFromFile(firstWord, '-', flagValue, flag_file, flag_log, dbases)
-                    email_notif                       = getParameterFromFile(firstWord, '-en', flagValue, flag_file, flag_log, email_notif)
+                    receiver_emails                   = getParameterListFromFile(firstWord, '-en', flagValue, flag_file, flag_log, receiver_emails)
+                    email_client                      = getParameterFromFile(firstWord, '-enc', flagValue, flag_file, flag_log, email_client)
+                    senders_email                     = getParameterFromFile(firstWord, '-ens', flagValue, flag_file, flag_log, senders_email)
+                    mail_server                       = getParameterFromFile(firstWord, '-enm', flagValue, flag_file, flag_log, mail_server)
 
     #####################   INPUT ARGUMENTS (these would overwrite whats in the configuration file(s))   ####################
     for word in sys.argv:
@@ -1457,25 +1486,60 @@ def main():
     virtual_local_host                = getParameterFromCommandLine(sys.argv, '-vlh', flag_log, virtual_local_host)
     dbuserkeys                        = getParameterListFromCommandLine(sys.argv, '-k', flag_log, dbuserkeys)
     dbases                            = getParameterListFromCommandLine(sys.argv, '-', flag_log, dbases)
-    email_notif                       = getParameterFromCommandLine(sys.argv, '-en', flag_log, email_notif)
+    receiver_emails                   = getParameterListFromCommandLine(sys.argv, '-en', flag_log, receiver_emails)
+    email_client                      = getParameterFromCommandLine(sys.argv, '-enc', flag_log, email_client)
+    senders_email                     = getParameterFromCommandLine(sys.argv, '-ens', flag_log, senders_email)
+    mail_server                       = getParameterFromCommandLine(sys.argv, '-enm', flag_log, mail_server)
 
     ############ GET LOCAL HOST ##########
     local_host = subprocess.check_output("hostname", shell=True).replace('\n','') if virtual_local_host == "" else virtual_local_host   
 
+    ############ CHECK EMAIL FLAGS #######
+    ### receiver_emails, -en
+    if receiver_emails:
+        if any(not is_email(element) for element in receiver_emails):
+            print("INPUT ERROR: some element(s) of -en is/are not email(s). Please see --help for more information.")
+            os._exit(1)
+    ### email_client, -enc
+    if email_client:
+        if not receiver_emails:
+            print("INPUT ERROR: -enc is specified although -en is not, this makes no sense. Please see --help for more information.")
+            os._exit(1)
+        if email_client not in ['mailx', 'mail', 'mutt']:
+            print "INPUT ERROR: The -enc flag does not specify any of the email clients mailx, mail, or mutt. If you are using another email client that can send emails with the command "
+            print '             <message> | <client> -s "<subject>" \n please let me know.'
+            os._exit(1)
+    ### senders_email, -ens
+    if senders_email:
+        if not receiver_emails:
+            print("INPUT ERROR: -ens is specified although -en is not, this makes no sense. Please see --help for more information.")
+            os._exit(1)
+        if not is_email(senders_email):
+            print("INPUT ERROR: -ens is not an email. Please see --help for more information.")
+            os._exit(1)
+    ### mail_server, -enm
+    if mail_server:
+        if not receiver_emails:
+            print("INPUT ERROR: -enm is specified although -en is not, this makes no sense. Please see --help for more information.")
+            os._exit(1)
+    emailSender = None
+    if receiver_emails:
+        emailSender = EmailSender(receiver_emails, email_client, senders_email, mail_server, SID)
+
     ############# STD OUT, LOG DIRECTORY and LOG MANAGER #########
-    std_out = checkAndConvertBooleanFlag(std_out, "-so", LogManager("", "", True))
+    std_out = checkAndConvertBooleanFlag(std_out, "-so", LogManager("", "", True, emailSender))
     log_path = out_path.replace(" ","_").replace(".","_")
     log_path = log_path.replace('%SID', SID)     
     if log_path and not os.path.exists(log_path):
         os.makedirs(log_path)
-    logman = LogManager(log_path, out_prefix, std_out)
+    logman = LogManager(log_path, out_prefix, std_out, emailSender)
 
     ############ CHECK FOR DISK FULL SITUATION ###################
     ### do_df_check, -df
     do_df_check = checkAndConvertBooleanFlag(do_df_check, "-df", logman)
     if do_df_check:
         if max_filesystem_usage_in_percent(file_system, ignore_filesystems, logman) > 98:
-            log('ERROR: HANACleaner is not supported during a "disk full situation". Currently one of your filesystem is using more than 98% of available disk space. Please solve this issue and then run HANACleaner again.', logman)
+            log('ERROR: HANACleaner is not supported during a "disk full situation". Currently one of your filesystem is using more than 98% of available disk space. Please solve this issue and then run HANACleaner again.', logman, True)
             os._exit(1)
 
     ############ CHECK AND CONVERT INPUT PARAMETERS #################
@@ -1491,19 +1555,19 @@ def main():
         os._exit(1)
     minRetainedBackups = int(minRetainedBackups)
     if minRetainedBackups == 0:
-        log("INPUT ERROR: -be is not allowed to be 0, we must keep at least one data backup entry. Please see --help for more information.", logman)
+        log("INPUT ERROR: -be is not allowed to be 0, we must keep at least one data backup entry. Please see --help for more information.", logman, True)
         os._exit(1)
     if minRetainedBackups < 0:
         minRetainedBackups = -1
     ### minRetainedDays, -bd
     if not is_integer(minRetainedDays):
-        log("INPUT ERROR: -bd must be an integer. Please see --help for more information.", logman)
+        log("INPUT ERROR: -bd must be an integer. Please see --help for more information.", logman, True)
         os._exit(1)
     minRetainedDays = int(minRetainedDays)
     # deleteBackups, -bb
     deleteBackups = checkAndConvertBooleanFlag(deleteBackups, "-bb", logman)    
     if deleteBackups and (minRetainedBackups < 0 and minRetainedDays < 0):
-        log("INPUT ERROR: If -bb is 'true' then -be and -bd cannot both be '-1'. Please see --help for more information.", logman)
+        log("INPUT ERROR: If -bb is 'true' then -be and -bd cannot both be '-1'. Please see --help for more information.", logman, True)
         os._exit(1)
     ### outputCatalog, -bo
     outputCatalog = checkAndConvertBooleanFlag(outputCatalog, "-bo", logman)
@@ -1526,63 +1590,63 @@ def main():
     ### backupTraceContent, -tcb
     backupTraceContent = checkAndConvertBooleanFlag(backupTraceContent, "-tcb", logman)
     if backupTraceContent and (retainedTraceContentDays == "-1" and retainedExpensiveTraceContentDays == "-1"):
-        log("INPUT ERROR: -tcb is specified although -tc and -te are not. This makes no sense. Please see --help for more information.", logman)
+        log("INPUT ERROR: -tcb is specified although -tc and -te are not. This makes no sense. Please see --help for more information.", logman, True)
         os._exit(1)
     ### backupTraceDirectory, -tbd
     if backupTraceDirectory and not backupTraceContent:
-        log("INPUT ERROR: -tbd is specified although -tcb is not. This makes no sense. Please see --help for more information.", logman)
+        log("INPUT ERROR: -tbd is specified although -tcb is not. This makes no sense. Please see --help for more information.", logman, True)
         os._exit(1)
     ### timeOutForMove, -tmo
     if not is_integer(timeOutForMove):
-        log("INPUT ERROR: -tmo must be an integer. Please see --help for more information.", logman)
+        log("INPUT ERROR: -tmo must be an integer. Please see --help for more information.", logman, True)
         os._exit(1)
     timeOutForMove = int(timeOutForMove)
     ### retainedTraceFilesDays, -tf
     if not is_integer(retainedTraceFilesDays):
-        log("INPUT ERROR: -tf must be an integer. Please see --help for more information.", logman)
+        log("INPUT ERROR: -tf must be an integer. Please see --help for more information.", logman, True)
         os._exit(1)
     if outputRemovedTraces:
         if retainedTraceContentDays == "-1" and retainedExpensiveTraceContentDays == "-1" and retainedTraceFilesDays == "-1":
-            log("INPUT ERROR: -td is true allthough -tc, -te and -tf are all -1. This makes no sense. Please see --help for more information.", logman)
+            log("INPUT ERROR: -td is true allthough -tc, -te and -tf are all -1. This makes no sense. Please see --help for more information.", logman, True)
             os._exit(1)
     ### retainedDumpDays, -dr
     if not is_integer(retainedDumpDays):
-        log("INPUT ERROR: -dr must be an integer. Please see --help for more information.", logman)
+        log("INPUT ERROR: -dr must be an integer. Please see --help for more information.", logman, True)
         os._exit(1)
     ### retainedAnyFileDays, -gr
     if not is_integer(retainedAnyFileDays):
-        log("INPUT ERROR: -gr must be an integer. Please see --help for more information.", logman)
+        log("INPUT ERROR: -gr must be an integer. Please see --help for more information.", logman, True)
         os._exit(1)
     ### anyFilePaths, -gd
     if anyFilePaths[0]:
         if not all(os.path.isdir(path) for path in anyFilePaths):
-            log("INPUT ERROR: -gd must be a directory or a list of directories. Please see --help for more information.", logman)
+            log("INPUT ERROR: -gd must be a directory or a list of directories. Please see --help for more information.", logman, True)
             os._exit(1)
     ### anyFileWords, -gw
     if not len(anyFileWords) == len(anyFilePaths):
-        log("INPUT ERROR: -gw must be a list of the same length as -gd. Please see --help for more information.", logman)
+        log("INPUT ERROR: -gw must be a list of the same length as -gd. Please see --help for more information.", logman, True)
         os._exit(1)
     if len(anyFileWords) == 1 and anyFileWords[0] == "" and not retainedAnyFileDays == "-1":
-        log("INPUT ERROR: -gw must be specified if -gr is. Please see --help for more information.", logman)
+        log("INPUT ERROR: -gw must be specified if -gr is. Please see --help for more information.", logman, True)
         os._exit(1)
     ### anyFileMaxDepth, -gm
     if not is_integer(anyFileMaxDepth):
-        log("INPUT ERROR: -gm must be an integer. Please see --help for more information.", logman)
+        log("INPUT ERROR: -gm must be an integer. Please see --help for more information.", logman, True)
         os._exit(1)
     anyFileMaxDepth = int(anyFileMaxDepth)
     if anyFileMaxDepth < 1 or anyFileMaxDepth > 10:
-        log("INPUT ERROR: -gm must be between 1 and 10. Please see --help for more information.", logman)
+        log("INPUT ERROR: -gm must be between 1 and 10. Please see --help for more information.", logman, True)
         os._exit(1)
     ### zipBackupLogsSizeLimit, -zb
     if not is_integer(zipBackupLogsSizeLimit):
-        log("INPUT ERROR: -zb must be an integer. Please see --help for more information.", logman)
+        log("INPUT ERROR: -zb must be an integer. Please see --help for more information.", logman, True)
         os._exit(1)       
     zipBackupLogsSizeLimit = int(zipBackupLogsSizeLimit)
     if zipBackupLogsSizeLimit != -1:
         ### zipBackupPath, -zp
         if zipBackupPath: #default has been put to '' and will be put to cdtrace as soon as we get local_instance
             if not os.path.exists(zipBackupPath):
-                log("INPUT ERROR: The path provided with -zp does not exist. Please see --help for more information.\n"+zipBackupPath, logman)
+                log("INPUT ERROR: The path provided with -zp does not exist. Please see --help for more information.\n"+zipBackupPath, logman, True)
                 os._exit(1)
     ### zipLinks, -zl
     zipLinks = checkAndConvertBooleanFlag(zipLinks, "-zl", logman)
@@ -1592,12 +1656,12 @@ def main():
     zipKeep = checkAndConvertBooleanFlag(zipKeep, "-zk", logman)
     ### minRetainedAlertDays, -ar
     if not is_integer(minRetainedAlertDays):
-        log("INPUT ERROR: -ar must be an integer. Please see --help for more information.", logman)
+        log("INPUT ERROR: -ar must be an integer. Please see --help for more information.", logman, True)
         os._exit(1)
     minRetainedAlertDays = int(minRetainedAlertDays)
     ### minRetainedObjLockDays, -kr
     if not is_integer(minRetainedObjLockDays):
-        log("INPUT ERROR: -kr must be an integer. Please see --help for more information.", logman)
+        log("INPUT ERROR: -kr must be an integer. Please see --help for more information.", logman, True)
         os._exit(1)
     minRetainedObjLockDays = int(minRetainedObjLockDays)
     ### outputAlerts, -ao
@@ -1606,40 +1670,40 @@ def main():
     outputDeletedAlerts = checkAndConvertBooleanFlag(outputDeletedAlerts, "-ad", logman)
     ### objHistMaxSize, -om
     if not is_integer(objHistMaxSize):
-        log("INPUT ERROR: -om must be an integer. Please see --help for more information.", logman)
+        log("INPUT ERROR: -om must be an integer. Please see --help for more information.", logman, True)
         os._exit(1)    
     objHistMaxSize = int(objHistMaxSize)
     ### outputObjHist, -oo
     outputObjHist = checkAndConvertBooleanFlag(outputObjHist, "-oo", logman)    
     ### maxFreeLogsegments, -lr 
     if not is_integer(maxFreeLogsegments):
-        log("INPUT ERROR: -lr must be an integer. Please see --help for more information.", logman)
+        log("INPUT ERROR: -lr must be an integer. Please see --help for more information.", logman, True)
         os._exit(1)
     maxFreeLogsegments = int(maxFreeLogsegments)
     ### minRetainedDaysForHandledEvents, -eh
     if not is_integer(minRetainedDaysForHandledEvents):
-        log("INPUT ERROR: -eh must be an integer. Please see --help for more information.", logman)
+        log("INPUT ERROR: -eh must be an integer. Please see --help for more information.", logman, True)
         os._exit(1)
     minRetainedDaysForHandledEvents = int(minRetainedDaysForHandledEvents) 
     ### minRetainedDaysForEvents, -eu
     if not is_integer(minRetainedDaysForEvents):
-        log("INPUT ERROR: -eu must be an integer. Please see --help for more information.", logman)
+        log("INPUT ERROR: -eu must be an integer. Please see --help for more information.", logman, True)
         os._exit(1)
     minRetainedDaysForEvents = int(minRetainedDaysForEvents)
     if minRetainedDaysForHandledEvents >= 0 and minRetainedDaysForEvents >= 0 and minRetainedDaysForHandledEvents > minRetainedDaysForEvents:
-        log("INPUT ERROR: it does not make sense that -eh > -eu. Please see --help for more information.", logman)
+        log("INPUT ERROR: it does not make sense that -eh > -eu. Please see --help for more information.", logman, True)
         os._exit(1)
     ### retainedAuditLogDays, -ur
     if not is_integer(retainedAuditLogDays):
-        log("INPUT ERROR: -ur must be an integer. Please see --help for more information.", logman)
+        log("INPUT ERROR: -ur must be an integer. Please see --help for more information.", logman, True)
         os._exit(1)    
     ### pendingEmailsDays, -pe
     if not is_integer(pendingEmailsDays):
-        log("INPUT ERROR: -pe must be an integer. Please see --help for more information.", logman)
+        log("INPUT ERROR: -pe must be an integer. Please see --help for more information.", logman, True)
         os._exit(1)
     ### fragmentationLimit, -fl
     if not is_integer(fragmentationLimit):
-        log("INPUT ERROR: -fl must be an integer. Please see --help for more information.", logman)
+        log("INPUT ERROR: -fl must be an integer. Please see --help for more information.", logman, True)
         os._exit(1)
     fragmentationLimit = int(fragmentationLimit)
     ### outputFragmentation, -fo
@@ -1650,42 +1714,42 @@ def main():
     outputRcContainers = checkAndConvertBooleanFlag(outputRcContainers, "-ro", logman)
     ### maxRawComp, -cc
     if not is_integer(maxRawComp):
-        log("INPUT ERROR: -cc must be an integer. Please see --help for more information.", logman)
+        log("INPUT ERROR: -cc must be an integer. Please see --help for more information.", logman, True)
         os._exit(1)
     maxRawComp = int(maxRawComp)
     ### maxEstComp, -ce
     if not is_integer(maxEstComp):
-        log("INPUT ERROR: -ce must be an integer. Please see --help for more information.", logman)
+        log("INPUT ERROR: -ce must be an integer. Please see --help for more information.", logman, True)
         os._exit(1)
     maxEstComp = int(maxEstComp)
     ### maxRowComp, -cr
     if not is_integer(maxRowComp):
-        log("INPUT ERROR: -cr must be an integer. Please see --help for more information.", logman)
+        log("INPUT ERROR: -cr must be an integer. Please see --help for more information.", logman, True)
         os._exit(1)
     maxRowComp = int(maxRowComp)
     ### maxMemComp, -cs
     if not is_integer(maxMemComp):
-        log("INPUT ERROR: -cs must be an integer. Please see --help for more information.", logman)
+        log("INPUT ERROR: -cs must be an integer. Please see --help for more information.", logman, True)
         os._exit(1)
     maxMemComp = int(maxMemComp)
     ### minDistComp, -cd
     if not is_integer(minDistComp):
-        log("INPUT ERROR: -cd must be an integer. Please see --help for more information.", logman)
+        log("INPUT ERROR: -cd must be an integer. Please see --help for more information.", logman, True)
         os._exit(1)
     minDistComp = int(minDistComp)
     ### maxQuotaComp, -cq
     if not is_integer(maxQuotaComp):
-        log("INPUT ERROR: -cq must be an integer. Please see --help for more information.", logman)
+        log("INPUT ERROR: -cq must be an integer. Please see --help for more information.", logman, True)
         os._exit(1)
     maxQuotaComp = int(maxQuotaComp)    
     ### maxUDIVComp, -cu
     if not is_integer(maxUDIVComp):
-        log("INPUT ERROR: -cu must be an integer. Please see --help for more information.", logman)
+        log("INPUT ERROR: -cu must be an integer. Please see --help for more information.", logman, True)
         os._exit(1)
     maxUDIVComp = int(maxUDIVComp)
     ### maxBLOCKComp, -cb
     if not is_integer(maxBLOCKComp):
-        log("INPUT ERROR: -cb must be an integer. Please see --help for more information.", logman)
+        log("INPUT ERROR: -cb must be an integer. Please see --help for more information.", logman, True)
         os._exit(1)
     maxBLOCKComp = int(maxBLOCKComp)
     ### partComp, -cp
@@ -1698,24 +1762,24 @@ def main():
     createVTStat = checkAndConvertBooleanFlag(createVTStat, "-vs", logman)
     ### defaultVTStatType, -vt
     if defaultVTStatType not in ['HISTOGRAM', 'SIMPLE', 'TOPK', 'SKETCH', 'SAMPLE', 'RECORD_COUNT']:
-        log("INPUT ERROR: Wrong input option of -vt. Please see --help for more information.", logman)
+        log("INPUT ERROR: Wrong input option of -vt. Please see --help for more information.", logman, True)
         os._exit(1)
     if defaultVTStatType == 'RECORD_COUNT':
         defaultVTStatType = 'RECORD COUNT'
     ### maxRowsForDefaultVT, -vn
     if not is_integer(maxRowsForDefaultVT):
-        log("INPUT ERROR: -vn must be an integer. Please see --help for more information.", logman)
+        log("INPUT ERROR: -vn must be an integer. Please see --help for more information.", logman, True)
         os._exit(1)
     maxRowsForDefaultVT = int(maxRowsForDefaultVT)
     ### largeVTStatType, -vtt
     if largeVTStatType not in ['HISTOGRAM', 'SIMPLE', 'TOPK', 'SKETCH', 'SAMPLE', 'RECORD_COUNT']:
-        log("INPUT ERROR: Wrong input option of -vtt. Please see --help for more information.", logman)
+        log("INPUT ERROR: Wrong input option of -vtt. Please see --help for more information.", logman, True)
         os._exit(1)
     if largeVTStatType == 'RECORD_COUNT':
         largeVTStatType = 'RECORD COUNT'
     ### otherDBVTStatType, -vto
     if otherDBVTStatType not in ['HISTOGRAM', 'SIMPLE', 'TOPK', 'SKETCH', 'SAMPLE', 'RECORD_COUNT', '']:
-        log("INPUT ERROR: Wrong input option of -vto. Please see --help for more information.", logman)
+        log("INPUT ERROR: Wrong input option of -vto. Please see --help for more information.", logman, True)
         os._exit(1)
     if otherDBVTStatType == 'RECORD_COUNT':
         otherDBVTStatType = 'RECORD COUNT'
@@ -1725,20 +1789,20 @@ def main():
     ignore2ndMon = checkAndConvertBooleanFlag(ignore2ndMon, "-vr", logman)
     ### refreshAge, -vnr
     if not is_integer(refreshAge):
-        log("INPUT ERROR: -vnr must be an integer. Please see --help for more information.", logman)
+        log("INPUT ERROR: -vnr must be an integer. Please see --help for more information.", logman, True)
         os._exit(1)
     refreshAge = int(refreshAge)
     ### minRetainedIniDays, -ir
     if not is_integer(minRetainedIniDays):
-        log("INPUT ERROR: -ir must be an integer. Please see --help for more information.", logman)
+        log("INPUT ERROR: -ir must be an integer. Please see --help for more information.", logman, True)
         os._exit(1)
     minRetainedIniDays = int(minRetainedIniDays)
     if minRetainedIniDays < 365 and minRetainedIniDays != -1:
-        log("INPUT ERROR: -ir must be larger than 365. Please see --help for more information. (If you disagree please remove this check on your own risk.)", logman)
+        log("INPUT ERROR: -ir must be larger than 365. Please see --help for more information. (If you disagree please remove this check on your own risk.)", logman, True)
         os._exit(1)
     ### hanacleaner_interval, -hci
     if not is_integer(hanacleaner_interval):
-        log("INPUT ERROR: -hci must be an integer. Please see --help for more information.", logman)
+        log("INPUT ERROR: -hci must be an integer. Please see --help for more information.", logman, True)
         os._exit(1)
     hanacleaner_interval = int(hanacleaner_interval)*24*3600  # days to seconds
     ### execute_sql, -es
@@ -1747,34 +1811,23 @@ def main():
     out_sql = checkAndConvertBooleanFlag(out_sql, "-os", logman)
     ### minRetainedOutputDays, -or
     if not is_integer(minRetainedOutputDays):
-        log("INPUT ERROR: -or must be an integer. Please see --help for more information.", logman)
+        log("INPUT ERROR: -or must be an integer. Please see --help for more information.", logman, True)
         os._exit(1)
     minRetainedOutputDays = int(minRetainedOutputDays)
     if minRetainedOutputDays >= 0 and out_path == "":
-        log("INPUT ERROR: -op has to be specified if -or is. Please see --help for more information.", logman)
+        log("INPUT ERROR: -op has to be specified if -or is. Please see --help for more information.", logman, True)
         os._exit(1)
     ### out_config, -oc
     out_config = checkAndConvertBooleanFlag(out_config, "-oc", logman)
     ### online_test_interval, -oi
     if not is_integer(online_test_interval):
-        log("INPUT ERROR: -oi must be an integer. Please see --help for more information.", logman)
+        log("INPUT ERROR: -oi must be an integer. Please see --help for more information.", logman, True)
         os._exit(1)
     online_test_interval = int(online_test_interval)
     ### dbases, -dbs, and dbuserkeys, -k
     if len(dbases) > 1 and len(dbuserkeys) > 1:
-        log("INPUT ERROR: -k may only specify one key if -dbs is used. Please see --help for more information.", logman)
-        os._exit(1)               
-    ### email_notif, -en
-    if email_notif:  # allow to be empty
-        if not len(email_notif) == 3:
-            print "INPUT ERROR: -en requires 3 elements, seperated by a comma. Please see --help for more information."
-            os._exit(1)
-        if not is_email(email_notif[0]) or not is_email(email_notif[1]) :
-            print "INPUT ERROR: first and second element of -en has to be valid emails. Please see --help for more information."
-            os._exit(1) 
-    emailSender = None
-    if email_notif:
-        emailSender = EmailSender(email_notif[0], email_notif[1], email_notif[2])
+        log("INPUT ERROR: -k may only specify one key if -dbs is used. Please see --help for more information.", logman, True)
+        os._exit(1)   
     
     ################ START #################
     while True: # hanacleaner intervall loop
@@ -1783,7 +1836,7 @@ def main():
             try:
                 key_environment = subprocess.check_output('''hdbuserstore LIST '''+dbuserkey, shell=True) 
             except:
-                log("ERROR, the key "+dbuserkey+" is not maintained in hdbuserstore.", logman)
+                log("ERROR, the key "+dbuserkey+" is not maintained in hdbuserstore.", logman, True)
                 os._exit(1)
             key_environment = key_environment.split('\n')
             key_environment = [ke for ke in key_environment if ke and not ke == 'Operation succeed.']
@@ -1826,7 +1879,7 @@ def main():
                 while not online_and_master_tests(online_test_interval, local_dbinstance, local_host, logman):  #will check if Online and if Primary and not Stand-By, and then if Master, but only if online_test_interval > -1           
                     log("\nOne of the online checks found out that this HANA instance, "+str(local_dbinstance)+", is not online or not master. ", logman)
                     if online_test_interval == 0:
-                        log("HANACleaner will now abort since online_test_interval = 0.", logman)
+                        log("HANACleaner will now abort since online_test_interval = 0.", logman, True)
                         os._exit(1)
                     else:
                         log("HANACleaner will now have a "+str(online_test_interval)+" seconds break and check again if this Instance is online, or master, after the break.\n", logman)
@@ -1837,12 +1890,12 @@ def main():
                 [dummy_out, succeeded] = try_execute_sql(sql, errorlog, sqlman, logman)
                 dummy_out = dummy_out.strip("\n").strip("|").strip(" ") 
                 if sqlman.execute and (dummy_out != 'X' or not succeeded):
-                    log("USER ERROR: The user represented by the key "+dbuserkey+" cannot connect to the system. Make sure this user is properly saved in hdbuserstore.", logman)
+                    log("USER ERROR: The user represented by the key "+dbuserkey+" cannot connect to the system. Make sure this user is properly saved in hdbuserstore.", logman, True)
                     os._exit(1)
                 ##### HANA VERSION COMPATABILITY ######    
                 [version, revision, mrevision] = hana_version_revision_maintenancerevision(sqlman, logman)
                 if (retainedTraceContentDays != "-1" or retainedExpensiveTraceContentDays != "-1") and (version < 2 and revision < 120):
-                    log("VERSION ERROR: -tc and -te are not supported for SAP HANA rev. < 120. (The UNTIL option is new with SPS12.)", logman)
+                    log("VERSION ERROR: -tc and -te are not supported for SAP HANA rev. < 120. (The UNTIL option is new with SPS12.)", logman, True)
                     os._exit(1)       
                 if zipBackupLogsSizeLimit != -1 and (version >= 2 and revision >= 40):
                     log("VERSION WARNING: -zb is not supported for SAP HANA 2 rev. >= 40. Instead configure size with parameters, see SAP Note 2797078.", logman)
@@ -1992,12 +2045,7 @@ def main():
                     log(logmessage, logman)
                     emailmessage += logmessage+"\n"
                 else:
-                    log("    (Cleaning of the hanacleaner logs was not done since -or was negative (or not specified))", logman)      
-                # SEND EMAIL   (https://www.systutorials.com/5167/sending-email-using-mailx-in-linux-through-internal-smtp/):
-                if emailSender:
-                    mailstring = 'echo "'+emailmessage+'" | mailx -s "HANACleaner execution on '+SID+'('+local_dbinstance+') '+db_string+'" -S smtp=smtp://'+emailSender.mailServer+' -S from="'+emailSender.senderEmail+'" '+emailSender.recieverEmail
-                    #print mailstring
-                    subprocess.check_output(mailstring, shell=True)
+                    log("    (Cleaning of the hanacleaner logs was not done since -or was negative (or not specified))", logman)     
             
         # HANACLEANER INTERVALL
         if hanacleaner_interval < 0: 
