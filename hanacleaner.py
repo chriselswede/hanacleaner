@@ -1230,7 +1230,7 @@ def main():
                                #     USER: SYSTEM
     dbases = ['']
     receiver_emails = None
-    email_client = 'mailx'   #default email client
+    email_client = ''   #default email client, mailx, will be specifed later if -enc not provided
     senders_email = None
     mail_server = None
     retainedTraceContentDays = "-1"
@@ -1505,6 +1505,9 @@ def main():
         if not receiver_emails:
             print("INPUT ERROR: -enc is specified although -en is not, this makes no sense. Please see --help for more information.")
             os._exit(1)
+    if receiver_emails:
+        if not email_client:
+            email_client = 'mailx'
         if email_client not in ['mailx', 'mail', 'mutt']:
             print "INPUT ERROR: The -enc flag does not specify any of the email clients mailx, mail, or mutt. If you are using another email client that can send emails with the command "
             print '             <message> | <client> -s "<subject>" \n please let me know.'
