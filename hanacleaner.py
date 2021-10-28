@@ -1927,7 +1927,7 @@ def main():
                 if minRetainedBackups >= 0 or minRetainedDays >= 0:
                     [nCleanedData, nCleanedLog] = clean_backup_catalog(minRetainedBackups, minRetainedDays, deleteBackups, outputCatalog, outputDeletedCatalog, outputNDeletedLBEntries, sqlman, logman)
                     logmessage = str(nCleanedData)+" data backup entries and "+str(nCleanedLog)+" log backup entries were removed from the backup catalog (-be and -bd)"
-                    if outputNDeletedLBEntries:
+                    if not outputNDeletedLBEntries:
                         logmessage = str(nCleanedData)+" data backup entries were removed from the backup catalog (number removed log backups is unknown since -bn = false)"
                     log(logmessage, logman)
                     emailmessage += logmessage+"\n"
