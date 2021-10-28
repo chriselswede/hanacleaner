@@ -1215,7 +1215,7 @@ def main():
     deleteBackups = "false"
     outputCatalog = "false"
     outputDeletedCatalog = "false"
-    outputNDeletedLBEntries = "false"
+    outputNDeletedLBEntries = "true"
     backupTraceContent = "false"
     backupTraceDirectory = ""
     timeOutForMove = "30"
