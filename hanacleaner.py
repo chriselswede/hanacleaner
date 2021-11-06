@@ -419,7 +419,9 @@ def is_master(local_dbinstance, local_host, logman):
     out_lines = out.splitlines(1)
     host_line = [line for line in out_lines if local_host in line]  #have not tested this with virtual and -vlh yet
     if len(host_line) != 1:
-        log("ERROR: Something went wrong. It found more than one (or none) host line: ", host_line)
+        print_out = "ERROR: Something went wrong. It found more than one (or none) host line" + " \n ".join(host_line)
+        log(print_out, logman, True)
+        os._exit(1)
     nameserver_actual_role = host_line[0].strip('\n').split('|')[11].strip(' ')
     test_ok = (str(err) == "None")
     result = nameserver_actual_role == 'master'
@@ -1499,7 +1501,8 @@ def main():
 
     ############ GET LOCAL HOST ##########
     local_host = subprocess.check_output("hostname", shell=True).replace('\n','') if virtual_local_host == "" else virtual_local_host   
-    local_host = local_host.split('.')[0]  #if full host name is specified in the local host (or virtual host), only the first part is used
+    if not is_integer(local_host.split('.')[0]):    #first check that it is not an IP address
+        local_host = local_host.split('.')[0]  #if full host name is specified in the local host (or virtual host), only the first part is used
 
     ############ CHECK EMAIL FLAGS #######
     ### receiver_emails, -en
