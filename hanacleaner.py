@@ -732,6 +732,9 @@ def clean_ini(minRetainedIniDays, version, revision, mrevision, sqlman, logman):
     if version < 2 or revision < 30:
         log("\nERROR: the -ir flag is only supported starting with SAP HANA 2.0 SPS03. You run on SAP HANA "+str(version)+" revision "+str(revision)+" maintenance revision "+str(mrevision), logman, True)
         os._exit(1)
+    if version > 4:
+        log("\nERROR: the -ir flag is not supported any more with SAP HANA 2.0 SPS05. You run on SAP HANA "+str(version)+" revision "+str(revision)+" maintenance revision "+str(mrevision), logman, True)
+        os._exit(1)
     try:
         nbrIniHistBefore = int(subprocess.check_output(sqlman.hdbsql_jAQaxU + " \"SELECT COUNT(*) FROM SYS.M_INIFILE_CONTENT_HISTORY\"", shell=True).strip(' '))
     except: 
