@@ -162,6 +162,7 @@ def printHelp():
     print("         be refreshed      (Note: -vl and -vr holds also for refresh)                                   default: -1 (no refresh)   ")
     print("         ---- INIFILE CONTENT HISTORY ----                                                                                         ")
     print(" -ir     inifile content history retention [days], deletes older inifile content history, default: -1 (not used) (should > 1 year) ")
+    print("         Note: Only supported with 03<SPS<SPS05.                                                                                   ")
     print("         ---- INTERVALL  ----                                                                                                      ")
     print(" -hci    hana cleaner interval [days], number days that hanacleaner waits before it restarts, default: -1 (exits after 1 cycle)    ")
     print("         NOTE: Do NOT use if you run hanacleaner in a cron job!                                                                    ")
@@ -734,6 +735,8 @@ def clean_ini(minRetainedIniDays, version, revision, mrevision, sqlman, logman):
         os._exit(1)
     if version > 4:
         log("\nERROR: the -ir flag is not supported any more with SAP HANA 2.0 SPS05. You run on SAP HANA "+str(version)+" revision "+str(revision)+" maintenance revision "+str(mrevision), logman, True)
+        # compare https://help.sap.com/viewer/4fe29514fd584807ac9f2a04f6754767/2.0.05/en-US/fb097f2620c645d18064ce6b93c24a1e.html
+        # with https://help.sap.com/viewer/4fe29514fd584807ac9f2a04f6754767/2.0.04/en-US/fb097f2620c645d18064ce6b93c24a1e.html 
         os._exit(1)
     try:
         nbrIniHistBefore = int(subprocess.check_output(sqlman.hdbsql_jAQaxU + " \"SELECT COUNT(*) FROM SYS.M_INIFILE_CONTENT_HISTORY\"", shell=True).strip(' '))
@@ -1409,7 +1412,7 @@ def main():
                     ssl                               = getParameterFromFile(firstWord, '-ssl', flagValue, flag_file, flag_log, ssl)
                     virtual_local_host                = getParameterFromFile(firstWord, '-vlh', flagValue, flag_file, flag_log, virtual_local_host)
                     dbuserkeys                        = getParameterListFromFile(firstWord, '-k', flagValue, flag_file, flag_log, dbuserkeys)
-                    dbases                            = getParameterListFromFile(firstWord, '-', flagValue, flag_file, flag_log, dbases)
+                    dbases                            = getParameterListFromFile(firstWord, '-dbs', flagValue, flag_file, flag_log, dbases)
                     receiver_emails                   = getParameterListFromFile(firstWord, '-en', flagValue, flag_file, flag_log, receiver_emails)
                     email_timeout                     = getParameterFromFile(firstWord, '-et', flagValue, flag_file, flag_log, email_timeout)
                     email_client                      = getParameterFromFile(firstWord, '-enc', flagValue, flag_file, flag_log, email_client)
@@ -1495,7 +1498,7 @@ def main():
     ssl                               = getParameterFromCommandLine(sys.argv, '-ssl', flag_log, ssl)
     virtual_local_host                = getParameterFromCommandLine(sys.argv, '-vlh', flag_log, virtual_local_host)
     dbuserkeys                        = getParameterListFromCommandLine(sys.argv, '-k', flag_log, dbuserkeys)
-    dbases                            = getParameterListFromCommandLine(sys.argv, '-', flag_log, dbases)
+    dbases                            = getParameterListFromCommandLine(sys.argv, '-dbs', flag_log, dbases)
     receiver_emails                   = getParameterListFromCommandLine(sys.argv, '-en', flag_log, receiver_emails)
     email_timeout                     = getParameterFromCommandLine(sys.argv, '-et', flag_log, email_timeout)
     email_client                      = getParameterFromCommandLine(sys.argv, '-enc', flag_log, email_client)
