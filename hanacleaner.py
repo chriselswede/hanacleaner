@@ -213,6 +213,7 @@ def printHelp():
     print(" -en     email notification for most fatal errors, <receiver 1's email>,<receiver 2's email>,... default:          (not used)      ") 
     print(" -et     email timeout warning [seconds], sends email to the email addresses specified with -en, if HANACleaner took longer time   ")
     print("         than specified with -et, default: -1 (not used)                                                                           ")
+    print(" -ena    always send email, if set to true, a summary of the hanacleaner run is always send (-en must be true), default: false     ")
     print(" -enc    email client, to explicitly specify the client (e.g mail, mailx, mutt,..), only useful if -en if used, default: mailx     ") 
     print(" -ens    sender's email, to explicitly specify sender's email address, only useful if -en if used, default:    (configured used)   ")
     print(" -enm    mail server, to explicitly specify the mail server, only useful if -en is used, default:     (configured used)            ")
@@ -348,15 +349,18 @@ def log(message, logmanager, sendEmail = False):
         logfile.write(message+"\n")   
         logfile.flush()
         logfile.close()
-    if sendEmail and logmanager.emailSender:  #sends email IF this call of log() wants it AND IF -en flag has been specified with email(s)       
-        message = 'Hi Team, \n\nHANACleaner reports:\n\n'+message
-        mailstring = 'echo "'+message+'" | '+logmanager.emailSender.emailClient+' -s "Message from HANACleaner on '+logmanager.emailSender.SID+'" '
-        if logmanager.emailSender.mailServer:
-            mailstring += ' -S smtp=smtp://'+logmanager.emailSender.mailServer+' '
-        if logmanager.emailSender.senderEmail:
-            mailstring += ' -S from="'+logmanager.emailSender.senderEmail+'" '
-        mailstring += ",".join(logmanager.emailSender.receiverEmails)
-        output = subprocess.check_output(mailstring, shell=True)
+    if sendEmail and logmanager.emailSender:  #sends email IF this call of log() wants it AND IF -en flag has been specified with email(s)
+        sendEmail(message, logmanager)
+
+def sendEmail(message, logmanager):       
+    message = 'Hi Team, \n\nHANACleaner reports:\n\n'+message
+    mailstring = 'echo "'+message+'" | '+logmanager.emailSender.emailClient+' -s "Message from HANACleaner on '+logmanager.emailSender.SID+'" '
+    if logmanager.emailSender.mailServer:
+        mailstring += ' -S smtp=smtp://'+logmanager.emailSender.mailServer+' '
+    if logmanager.emailSender.senderEmail:
+        mailstring += ' -S from="'+logmanager.emailSender.senderEmail+'" '
+    mailstring += ",".join(logmanager.emailSender.receiverEmails)
+    output = subprocess.check_output(mailstring, shell=True)
 
 def try_execute_sql(sql, errorlog, sqlman, logman, exit_on_fail = True):
     succeeded = True
@@ -452,7 +456,7 @@ def is_secondary(logman):
     return result 
 
 def checkIfAcceptedFlag(word):
-    if not word in ["-h", "--help", "-d", "--disclaimer", "-ff", "-be", "-bd", "-bb", "-bo", "-br", "-bn", "-tc", "-te", "-tcb", "-tbd", "-tmo", "-tf", "-to", "-td", "-dr", "-gr", "-gd", "-gw", "-gm", "-zb", "-zp", "-zl", "-zo", "-zk", "-ar", "-kr", "-ao", "-ad", "-om", "-oo", "-lr", "-eh", "-eu", "-ur", "-pe", "-fl", "-fo", "-rc", "-ro", "-cc", "-ce", "-cr", "-cs", "-cd", "-cq", "-cu", "-cb", "-cp", "-cm", "-co", "-vs", "-vt", "-vn", "-vtt", "-vto", "-vr", "-vnr", "-vl", "-ir", "-es", "-os", "-op", "-of", "-or", "-oc", "-oi", "-fs", "-if", "-df", "-hci", "-so", "-ssl", "-vlh", "-k", "-dbs", "-en", "-et", "-enc", "-ens", "-enm"]:
+    if not word in ["-h", "--help", "-d", "--disclaimer", "-ff", "-be", "-bd", "-bb", "-bo", "-br", "-bn", "-tc", "-te", "-tcb", "-tbd", "-tmo", "-tf", "-to", "-td", "-dr", "-gr", "-gd", "-gw", "-gm", "-zb", "-zp", "-zl", "-zo", "-zk", "-ar", "-kr", "-ao", "-ad", "-om", "-oo", "-lr", "-eh", "-eu", "-ur", "-pe", "-fl", "-fo", "-rc", "-ro", "-cc", "-ce", "-cr", "-cs", "-cd", "-cq", "-cu", "-cb", "-cp", "-cm", "-co", "-vs", "-vt", "-vn", "-vtt", "-vto", "-vr", "-vnr", "-vl", "-ir", "-es", "-os", "-op", "-of", "-or", "-oc", "-oi", "-fs", "-if", "-df", "-hci", "-so", "-ssl", "-vlh", "-k", "-dbs", "-en", "-et", "-ena", "-enc", "-ens", "-enm"]:
         print "INPUT ERROR: ", word, " is not one of the accepted input flags. Please see --help for more information."
         os._exit(1)
 
@@ -1242,6 +1246,7 @@ def main():
     dbases = ['']
     receiver_emails = None
     email_timeout = "-1"
+    sendEmailSummary = "false"
     email_client = ''   #default email client, mailx, will be specifed later if -enc not provided
     senders_email = None
     mail_server = None
@@ -1415,6 +1420,7 @@ def main():
                     dbases                            = getParameterListFromFile(firstWord, '-dbs', flagValue, flag_file, flag_log, dbases)
                     receiver_emails                   = getParameterListFromFile(firstWord, '-en', flagValue, flag_file, flag_log, receiver_emails)
                     email_timeout                     = getParameterFromFile(firstWord, '-et', flagValue, flag_file, flag_log, email_timeout)
+                    sendEmailSummary                  = getParameterFromFile(firstWord, '-ena', flagValue, flag_file, flag_log, email_client)
                     email_client                      = getParameterFromFile(firstWord, '-enc', flagValue, flag_file, flag_log, email_client)
                     senders_email                     = getParameterFromFile(firstWord, '-ens', flagValue, flag_file, flag_log, senders_email)
                     mail_server                       = getParameterFromFile(firstWord, '-enm', flagValue, flag_file, flag_log, mail_server)
@@ -1501,6 +1507,7 @@ def main():
     dbases                            = getParameterListFromCommandLine(sys.argv, '-dbs', flag_log, dbases)
     receiver_emails                   = getParameterListFromCommandLine(sys.argv, '-en', flag_log, receiver_emails)
     email_timeout                     = getParameterFromCommandLine(sys.argv, '-et', flag_log, email_timeout)
+    sendEmailSummary                  = getParameterFromCommandLine(sys.argv, '-ena', flag_log, email_client)
     email_client                      = getParameterFromCommandLine(sys.argv, '-enc', flag_log, email_client)
     senders_email                     = getParameterFromCommandLine(sys.argv, '-ens', flag_log, senders_email)
     mail_server                       = getParameterFromCommandLine(sys.argv, '-enm', flag_log, mail_server)
@@ -1524,6 +1531,11 @@ def main():
     if email_timeout >= 0 and not receiver_emails:
         print("INPUT ERROR: -et is specified although -en is not, this makes no sense. Please see --help for more information.")
         os._exit(1)
+    ### sendEmailSummary, -ena
+    if sendEmailSummary:
+        if not receiver_emails:
+            print("INPUT ERROR: -ena is specified although -en is not, this makes no sense. Please see --help for more information.")
+            os._exit(1)
     ### email_client, -enc
     if email_client:
         if not receiver_emails:
@@ -1902,9 +1914,9 @@ def main():
                 if out_config:
                     parameter_string = "\n".join("{}\t{}".format(k, "= "+v[0]+" from "+v[1]) for k, v in flag_log.items())
                 if sqlman.execute:
-                    startstring = "***********************************************************\n"+datetime.now().strftime("%Y-%m-%d %H:%M:%S")+"\nhanacleaner as "+whoami+" by "+dbuserkey+" on "+SID+"("+local_dbinstance+") "+db_string+" with \n"+" ".join(sys.argv)+"\nCleanup Statements will be executed (-es is default true)\n"+parameter_string+"\nBefore using HANACleaner read the disclaimer!\npython hanacleaner.py --disclaimer\n***********************************************************" 
+                    startstring = "***********************************************************\n"+datetime.now().strftime("%Y-%m-%d %H:%M:%S")+"\nhanacleaner as "+whoami+" by "+dbuserkey+" on "+SID+"("+local_dbinstance+") "+db_string+" with \n"+" ".join(sys.argv)+"\nCleanup Statements will be executed (-es is default true)\n"+parameter_string+" Before using HANACleaner read the disclaimer!\n    python hanacleaner.py --disclaimer\n***********************************************************" 
                 else:
-                    startstring = "*********************************************\n"+datetime.now().strftime("%Y-%m-%d %H:%M:%S")+"\nhanacleaner as "+whoami+" by "+dbuserkey+"\non "+SID+"("+local_dbinstance+") "+db_string+" with \n"+" ".join(sys.argv)+"\nCleanup Statements will NOT be executed\n"+parameter_string+"\nBefore using HANACleaner read the disclaimer!\npython hanacleaner.py --disclaimer\n*********************************************"
+                    startstring = "*********************************************\n"+datetime.now().strftime("%Y-%m-%d %H:%M:%S")+"\nhanacleaner as "+whoami+" by "+dbuserkey+"\non "+SID+"("+local_dbinstance+") "+db_string+" with \n"+" ".join(sys.argv)+"\nCleanup Statements will NOT be executed\n"+parameter_string+" Before using HANACleaner read the disclaimer!\n    python hanacleaner.py --disclaimer\n*********************************************"
                 log(startstring, logman)
                 emailmessage += startstring+"\n"
                 ############ ONLINE TESTS (OPTIONAL) ##########################
@@ -2077,7 +2089,10 @@ def main():
                     log(logmessage, logman)
                     emailmessage += logmessage+"\n"
                 else:
-                    log("    (Cleaning of the hanacleaner logs was not done since -or was negative (or not specified))", logman)     
+                    log("    (Cleaning of the hanacleaner logs was not done since -or was negative (or not specified))", logman)  
+                ##### SEND EMAIL SUMMARY #####
+                if sendEmailSummary:
+                    sendEmail(emailmessage, logman)   
             ################ DISABLE TIMEOUT ALARM #############
             signal.alarm(0)
 
