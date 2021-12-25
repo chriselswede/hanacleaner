@@ -1206,10 +1206,13 @@ def clean_anyfile(retainedAnyFileDays, anyFilePaths, anyFileWords, anyFileMaxDep
         removedFiles += nFilesBefore - nFilesAfter
     return removedFiles  
     
-def checkAndConvertBooleanFlag(boolean, flagstring, logman):     
+def checkAndConvertBooleanFlag(boolean, flagstring, logman = ''):     
     boolean = boolean.lower()
     if boolean not in ("false", "true"):
-        log("INPUT ERROR: "+flagstring+" must be either 'true' or 'false'. Please see --help for more information.", logman, True)
+        if logman:
+            log("INPUT ERROR: "+flagstring+" must be either 'true' or 'false'. Please see --help for more information.", logman, True)
+        else:
+            print "INPUT ERROR: "+flagstring+" must be either 'true' or 'false'. Please see --help for more information."
         os._exit(1)
     boolean = True if boolean == "true" else False
     return boolean
@@ -1246,7 +1249,7 @@ def main():
     dbases = ['']
     receiver_emails = None
     email_timeout = "-1"
-    sendEmailSummary = "false"
+    sendEmailSummary = "false" 
     email_client = ''   #default email client, mailx, will be specifed later if -enc not provided
     senders_email = None
     mail_server = None
@@ -1525,16 +1528,17 @@ def main():
             os._exit(1)
     ### email_timeout, -et
     if not is_integer(email_timeout):
-        log("INPUT ERROR: -et must be an integer. Please see --help for more information.", logman)
+        print("INPUT ERROR: -et must be an integer. Please see --help for more information.")
         os._exit(1)
     email_timeout = int(email_timeout)
     if email_timeout >= 0 and not receiver_emails:
         print("INPUT ERROR: -et is specified although -en is not, this makes no sense. Please see --help for more information.")
         os._exit(1)
     ### sendEmailSummary, -ena
+    sendEmailSummary = checkAndConvertBooleanFlag(sendEmailSummary, "-ena")
     if sendEmailSummary:
         if not receiver_emails:
-            print("INPUT ERROR: -ena is specified although -en is not, this makes no sense. Please see --help for more information.")
+            print("INPUT ERROR: -ena is true although -en is not specified, this makes no sense. Please see --help for more information.")
             os._exit(1)
     ### email_client, -enc
     if email_client:
