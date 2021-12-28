@@ -188,6 +188,7 @@ def printHelp():
     print("                                         > 0: time it waits before it checks if DB is online and primary again                     ")
     print("                                              Note: For the > 0 option it might be necessary to use cron with the lock option      ")
     print("                                                    See the HANASitter & CRON slide in the HANASitter pdf                          ")
+    print("         Note: for now, -oi is not supported for a server running HANA Cockpit                                                     ")
     print("         ---- SERVER FULL CHECK ----                                                                                               ")
     print(" -fs     file system, path to server to check for disk full situation before hanacleaner runs, default: blank, i.e. df -h is used  ")
     print('                      Could also be used to specify a couple of servers with e.g. -fs "|grep sapmnt"                               ')
