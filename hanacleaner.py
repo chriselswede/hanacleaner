@@ -438,6 +438,7 @@ def online_and_master_tests(online_test_interval, local_dbinstance, local_host, 
 def is_master(local_dbinstance, local_host, logman):
     process = subprocess.Popen(['python', cdalias('cdpy', local_dbinstance)+"/landscapeHostConfiguration.py"], stdout=subprocess.PIPE)
     out, err = process.communicate()
+    out = out.decode()
     out_lines = out.splitlines(1)
     host_line = [line for line in out_lines if local_host in line]  #have not tested this with virtual and -vlh yet
     if len(host_line) != 1:
@@ -454,6 +455,7 @@ def is_master(local_dbinstance, local_host, logman):
 def is_online(dbinstance, logman): #Checks if all services are GREEN and if there exists an indexserver (if not this is a Stand-By) 
     process = subprocess.Popen(['sapcontrol', '-nr', dbinstance, '-function', 'GetProcessList'], stdout=subprocess.PIPE)
     out, err = process.communicate()
+    out = out.decode()
     number_services = out.count(" HDB ") + out.count(" Local Secure Store")   
     number_running_services = out.count("GREEN")
     number_indexservers = int(out.count("hdbindexserver")) # if not indexserver this is Stand-By
@@ -466,6 +468,7 @@ def is_online(dbinstance, logman): #Checks if all services are GREEN and if ther
 def is_secondary(logman):
     process = subprocess.Popen(['hdbnsutil', '-sr_state'], stdout=subprocess.PIPE)
     out, err = process.communicate() 
+    out = out.decode()
     test_ok = (str(err) == "None")
     result = "active primary site" in out   # then it is secondary!
     printout = "Primary Check     , "+datetime.now().strftime("%Y-%m-%d %H:%M:%S")+"    ,     -            , "+str(test_ok)+"         , "+str(not result)+"       , " 
@@ -506,7 +509,7 @@ def backup_id(minRetainedBackups, minRetainedDays, sqlman):
     if minRetainedDays >= 0:
         #results = subprocess.check_output(sqlman.hdbsql_jAQaxU + " \"" + sql_for_backup_id_for_min_retained_days(minRetainedDays) + "\"", shell=True).splitlines(1)
         results = run_command(sqlman.hdbsql_jAQaxU + " \"" + sql_for_backup_id_for_min_retained_days(minRetainedDays) + "\"").splitlines(1)
-        [backupIdForMinRetainedDays, startTimeForMinRetainedDays, dummy] = results if results else ['', '', '']
+        [backupIdForMinRetainedDays, startTimeForMinRetainedDays] = results if results else ['', '']
         if not backupIdForMinRetainedDays:
             backupIdForMinRetainedDays = '-1'
             startTimeForMinRetainedDays = '1000-01-01 08:00:00'
@@ -516,7 +519,7 @@ def backup_id(minRetainedBackups, minRetainedDays, sqlman):
     if minRetainedBackups >= 0:
         #results = subprocess.check_output(sqlman.hdbsql_jAQaxU + " \"" + sql_for_backup_id_for_min_retained_backups(minRetainedBackups) + "\"", shell=True).splitlines(1)
         results = run_command(sqlman.hdbsql_jAQaxU + " \"" + sql_for_backup_id_for_min_retained_backups(minRetainedBackups) + "\"").splitlines(1)
-        [backupIdForMinRetainedBackups, startTimeForMinRetainedBackups, dummy] = results if results else ['', '', '']
+        [backupIdForMinRetainedBackups, startTimeForMinRetainedBackups] = results if results else ['', '']
         if not backupIdForMinRetainedBackups:
             backupIdForMinRetainedBackups = '-1'
             startTimeForMinRetainedBackups = '1000-01-01 08:00:00'
