@@ -252,6 +252,9 @@ def printHelp():
     print(" 5. Check for multiple definitions of one flag, give ERROR, and STOP                                                               ")
     print(" 6. Move trace files instead of deleting ... --> not a good idea ... should not touch trace files from OS, only from HANA          ")
     print(" 7. Only send emails in case of some failure, either an found error or a catched error                                             ")
+    print(" 8. HANA Cleaner should be able to clean up its own tracefiles (-or) even though it is Secondary on a System Replicaiton setup     ")
+    print("    The same is true about some other cleanups... e.g. ANY FILES                                                                   ")
+    print(" 9. It should be possible to influence the ignore list of the -tf flag with a flag getting a list of files not to delete           ")
     print("                                                                                                                                   ")
     print("AUTHOR: Christian Hansen                                                                                                           ")
     print("                                                                                                                                   ")
@@ -338,8 +341,6 @@ def run_command(cmd):
     else:
         print("ERROR: Wrong Python version")
         os._exit(1)
-    #print(repr(out))
-    #print("OUT:\nThis is OUT="+out+"!")
     return out
 
 def get_sid():
@@ -692,8 +693,8 @@ def clean_trace_files(retainedTraceContentDays, retainedExpensiveTraceContentDay
         #filesToBeRemoved = subprocess.check_output(sqlman.hdbsql_jAQaxU + " \"" + sql + "\"", shell=True).splitlines(1)
         filesToBeRemoved = run_command(sqlman.hdbsql_jAQaxU + " \"" + sql + "\"").splitlines(1)
         filesToBeRemoved = [file.strip('\n').strip(' ') for file in filesToBeRemoved if file != '\n'] 
-        # Ignore files with names that breaks the ALTER command, or kill.sap according to SAP Note 2349144, and backup.log and backint.log since they are taken care of by -zb, see SAP Note 2431472 about hdbdaemon, we do not want to delete any .sem or .status file, and we do not want to delete any links, e.g. .sap<SID>_HDB<inst>
-        filesToBeRemoved = [file for file in filesToBeRemoved if not (" " in file or "," in file or "'" in file or "kill.sap" in file or "backup.log" in file or "backint.log" in file or "hdbdaemon.status" in file or "sapstart.sem" in file or "sapstart.log" in file or ".sap"+SID+"_HDB"+local_dbinstance in file)]
+        # Ignore files with names that breaks the ALTER command, or kill.sap according to SAP Note 2349144, and backup.log and backint.log since they are taken care of by -zb, see SAP Note 2431472 about hdbdaemon, we do not want to delete any .sem or .status file, and we do not want to delete any links, e.g. .sap<SID>_HDB<inst>, and we dont want to delete the log for the webdispatcher
+        filesToBeRemoved = [file for file in filesToBeRemoved if not (" " in file or "," in file or "'" in file or "kill.sap" in file or "backup.log" in file or "backint.log" in file or "hdbdaemon.status" in file or "sapstart.sem" in file or "sapstart.log" in file or ".sap"+SID+"_HDB"+local_dbinstance in file or "http_fe.log" in file)]
         # Make sure we only delete files with known extensions (we dont delete .sem or .status files). Added two files without extensions that we want to delete. To delete files like dev_icm_sec one have to run HANACleaner as dev_icm_sec from SYSTEMDB, otherwise they are not in m_tracefiles
         filesToBeRemoved = [file for file in filesToBeRemoved if any(x in file for x in [".trc", ".log", ".stat", ".py", ".tpt", ".gz", ".zip", ".old", ".xml", ".txt", ".docs", ".cfg", ".dmp", ".cockpit", ".xs", "dev_icm_sec", "wdisp_icm_log"])] 
         if filesToBeRemoved:  # otherwise no file to remove
