@@ -562,8 +562,10 @@ def sqls_for_backup_catalog_cleanup(minRetainedBackups, minRetainedDays, deleteB
     return sqls
         
 def print_removed_entries(before, after, logman):
-    beforeLines = before.splitlines(1)
+    beforeLines = before.splitlines(1) 
+    beforeLines = [x.replace('\n', '')  for x in beforeLines]
     afterLines = after.splitlines(1)
+    afterLines = [x.replace('\n', '')  for x in afterLines]
     dif = list(Differ().compare(beforeLines, afterLines))
     removedLines = [line.strip("- ").strip("\n") for line in dif if line[0] == '-']
     if removedLines:
@@ -1327,9 +1329,8 @@ def main():
 
     #####################  CHECK PYTHON VERSION ###########
     if sys.version_info[0] != 2 and sys.version_info[0] != 3:
-        if sys.version_info[1] != 7:
-            print("VERSION ERROR: hanacleaner is only supported for Python 2.7.x (for HANA 2 SPS05 and lower) and for Python 3.7.x (for HANA 2 SPS06 and higher). Did you maybe forget to log in as <sid>adm before executing this?")
-            os._exit(1)
+        print("VERSION ERROR: hanacleaner is only supported for Python 2.7.x (for HANA 2 SPS05 and lower) and for Python 3.7.x (for HANA 2 SPS06 and higher). Did you maybe forget to log in as <sid>adm before executing this?")
+        os._exit(1)
     if sys.version_info[0] == 3:
         print("VERSION WARNING: You are among the first using HANACleaner on Python 3. As always, use on your own risk, and please report issues to christian.hansen01@sap.com. Thank you!")
 
