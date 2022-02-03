@@ -209,7 +209,9 @@ def printHelp():
     print("         Note: It is not possible to use underscore in the user key, e.g. HANA_HOUSEKEEPING is NOT possible                        ")
     print(" -dbs    DB key, this can be a list of databases accessed from the system defined by -k (-k can only be one key if -dbs is used)   ")               
     print("         Note: Users with same name and password have to be maintained in all databases   , default: ''  (not used)                ")
-    print("         Example:  -k PQLSYSDB -dbs SYSTEMDB, PQL                                                                                  ")
+    print("         It is possible to specify  -dbs all  to execute hanacleaner on all active databases, then -k must point to SYSTEMDB       ")
+    print("         Example:  -k PQLSYSDBKEY -dbs SYSTEMDB,PQL,PQ2                                                                            ")
+    print("         Example:  -k PQLSYSDBKEY -dbs all                                                                                         ")
     print("         ---- EMAIL ----                                                                                                           ")
     print(" -en     email notification for most fatal errors, <receiver 1's email>,<receiver 2's email>,... default:          (not used)      ") 
     print(" -et     email timeout warning [seconds], sends email to the email addresses specified with -en, if HANACleaner took longer time   ")
@@ -419,6 +421,25 @@ def hosts(sqlman):
     hosts = [host.strip('\n').strip('|').strip(' ') for host in hosts]
     return hosts
 
+def get_key_info(dbuserkey, local_host, logman):
+    try:
+        #key_environment = subprocess.check_output('''hdbuserstore LIST '''+dbuserkey, shell=True)
+        key_environment = run_command('''hdbuserstore LIST '''+dbuserkey) 
+    except:
+        log("ERROR, the key "+dbuserkey+" is not maintained in hdbuserstore.", logman, True)
+        os._exit(1)
+    key_environment = key_environment.split('\n')
+    key_environment = [ke for ke in key_environment if ke and not ke == 'Operation succeed.']
+    ENV = key_environment[1].replace('  ENV : ','').replace(';',',').split(',')
+    key_hosts = [env.split(':')[0].split('.')[0] for env in ENV]  #if full host name is specified in the Key, only the first part is used 
+    DATABASE = ''
+    if len(key_environment) == 4:   # if DATABASE is specified in the key, this will by used in the SQLManager (but if -dbs is specified, -dbs wins)
+        DATABASE = key_environment[3].replace('  DATABASE: ','').replace(' ', '')
+    if not local_host in key_hosts:
+        print("ERROR, local host, ", local_host, ", should be one of the hosts specified for the key, ", dbuserkey, " (in case of virtual, please use -vlh, see --help for more info)")
+        os._exit(1)
+    return  [key_hosts, ENV, DATABASE]
+
 def sql_for_backup_id_for_min_retained_days(minRetainedDays):
     oldestDayForKeepingBackup = datetime.now() + timedelta(days = -int(minRetainedDays))
     return "SELECT TOP 1 ENTRY_ID, SYS_START_TIME from sys.m_backup_catalog where (ENTRY_TYPE_NAME = 'complete data backup' or ENTRY_TYPE_NAME = 'data snapshot') and STATE_NAME = 'successful' and SYS_START_TIME < '" + oldestDayForKeepingBackup.strftime('%Y-%m-%d')+" 00:00:00' order by SYS_START_TIME desc"
@@ -475,6 +496,22 @@ def is_secondary(logman):
     printout = "Primary Check     , "+datetime.now().strftime("%Y-%m-%d %H:%M:%S")+"    ,     -            , "+str(test_ok)+"         , "+str(not result)+"       , " 
     log(printout, logman)
     return result 
+
+def get_all_databases(execute_sql, hdbsql_string, dbuserkey, local_host, out_sql, logman): 
+    all_db_out = ''
+    [key_hosts, ENV, DATABASE] = get_key_info(dbuserkey, local_host, logman)
+    key_sqlports = [env.split(':')[1] for env in ENV]     
+    if not key_sqlports[0][-2:] == '13':
+        log("ERROR: If  -bds all  is used, then  -k  must point to SYSTEMDB. Please see --help for more information.", logman)
+        os._exit(1)
+    sqlman = SQLManager(execute_sql, hdbsql_string, dbuserkey, DATABASE, out_sql)
+    all_db_out = run_command(sqlman.hdbsql_jAaxU + " \"select DATABASE_NAME from M_DATABASES WHERE (ACTIVE_STATUS = 'YES')\"")
+    all_databases = [line.strip('|').strip(' ') for line in all_db_out.splitlines()]
+    if (len(all_databases) == 0) or \
+        (len(all_databases) == 1) and all_databases[0] == '':
+        log("\nERROR: No active database found. ", logman)
+        os._exit(1)
+    return all_databases
 
 def checkIfAcceptedFlag(word):
     if not word in ["-h", "--help", "-d", "--disclaimer", "-ff", "-be", "-bd", "-bb", "-bo", "-br", "-bn", "-tc", "-te", "-tcb", "-tbd", "-tmo", "-tf", "-to", "-td", "-dr", "-gr", "-gd", "-gw", "-gm", "-zb", "-zp", "-zl", "-zo", "-zk", "-ar", "-kr", "-ao", "-ad", "-om", "-oo", "-lr", "-eh", "-eu", "-ur", "-pe", "-fl", "-fo", "-rc", "-ro", "-cc", "-ce", "-cr", "-cs", "-cd", "-cq", "-cu", "-cb", "-cp", "-cm", "-co", "-vs", "-vt", "-vn", "-vtt", "-vto", "-vr", "-vnr", "-vl", "-ir", "-es", "-os", "-op", "-of", "-or", "-oc", "-oi", "-fs", "-if", "-df", "-hci", "-so", "-ssl", "-vlh", "-k", "-dbs", "-en", "-et", "-ena", "-enc", "-ens", "-enm"]:
@@ -1981,7 +2018,11 @@ def main():
     ### dbases, -dbs, and dbuserkeys, -k
     if len(dbases) > 1 and len(dbuserkeys) > 1:
         log("INPUT ERROR: -k may only specify one key if -dbs is used. Please see --help for more information.", logman, True)
-        os._exit(1)   
+        os._exit(1)
+    ### dbases, option with all data bases: -dbs all (-k must point to systemdb)
+    if len(dbases) == 1 and len(dbuserkeys) == 1 and 'all' in dbases:
+        dbuserkey = dbuserkeys[0]
+        dbases = get_all_databases(execute_sql, hdbsql_string, dbuserkey, local_host, out_sql, logman)   
 
     ################ START #################
     while True: # hanacleaner intervall loop
@@ -1992,22 +2033,7 @@ def main():
             signal.signal(signal.SIGALRM, timeout_handler)
             signal.alarm(email_timeout)
             ############ GET LOCAL INSTANCE and SID ##########
-            try:
-                #key_environment = subprocess.check_output('''hdbuserstore LIST '''+dbuserkey, shell=True)
-                key_environment = run_command('''hdbuserstore LIST '''+dbuserkey) 
-            except:
-                log("ERROR, the key "+dbuserkey+" is not maintained in hdbuserstore.", logman, True)
-                os._exit(1)
-            key_environment = key_environment.split('\n')
-            key_environment = [ke for ke in key_environment if ke and not ke == 'Operation succeed.']
-            ENV = key_environment[1].replace('  ENV : ','').replace(';',',').split(',')
-            key_hosts = [env.split(':')[0].split('.')[0] for env in ENV]  #if full host name is specified in the Key, only the first part is used 
-            DATABASE = ''
-            if len(key_environment) == 4:   # if DATABASE is specified in the key, this will by used in the SQLManager (but if -dbs is specified, -dbs wins, see below)
-                DATABASE = key_environment[3].replace('  DATABASE: ','').replace(' ', '')
-            if not local_host in key_hosts:
-                print("ERROR, local host, ", local_host, ", should be one of the hosts specified for the key, ", dbuserkey, " (in case of virtual, please use -vlh, see --help for more info)")
-                os._exit(1)
+            [key_hosts, ENV, DATABASE] = get_key_info(dbuserkey, local_host, logman)
             local_host_index = key_hosts.index(local_host)
             key_sqlports = [env.split(':')[1] for env in ENV]        
             dbinstances = [port[1:3] for port in key_sqlports]
