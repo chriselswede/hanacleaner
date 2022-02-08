@@ -356,7 +356,7 @@ def is_integer(s):
     except ValueError:
         return False
 
-def log(message, logmanager, sendEmail = False):
+def log(message, logmanager, send_email = False):
     if logmanager.print_to_std:
         print(message)
     if logmanager.path:
@@ -365,7 +365,7 @@ def log(message, logmanager, sendEmail = False):
         logfile.write(message+"\n")   
         logfile.flush()
         logfile.close()
-    if sendEmail and logmanager.emailSender:  #sends email IF this call of log() wants it AND IF -en flag has been specified with email(s)
+    if send_email and logmanager.emailSender:  #sends email IF this call of log() wants it AND IF -en flag has been specified with email(s)
         sendEmail(message, logmanager)
 
 def sendEmail(message, logmanager):       
