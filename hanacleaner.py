@@ -462,7 +462,7 @@ def is_master(local_dbinstance, local_host, logman):
     out, err = process.communicate()
     out = out.decode()
     out_lines = out.splitlines(1)
-    host_line = [line for line in out_lines if local_host in line]  #have not tested this with virtual and -vlh yet
+    host_line = [line for line in out_lines if local_host.upper() in line or local_host.lower() in line]  #have not tested this with virtual and -vlh yet
     if len(host_line) != 1:
         print_out = "ERROR: Something went wrong. It found more than one (or none) host line" + " \n ".join(host_line)
         log(print_out, logman, True)
