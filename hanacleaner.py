@@ -462,7 +462,7 @@ def is_master(local_dbinstance, local_host, logman):
     out, err = process.communicate()
     out = out.decode()
     out_lines = out.splitlines(1)
-    host_line = [line for line in out_lines if local_host.upper() in line or local_host.lower() in line]  #have not tested this with virtual and -vlh yet
+    host_line = [line for line in out_lines if local_host in line or local_host.upper() in line or local_host.lower() in line]  #have not tested this with virtual and -vlh yet
     if len(host_line) != 1:
         print_out = "ERROR: Something went wrong. It found more than one (or none) host line" + " \n ".join(host_line)
         log(print_out, logman, True)
@@ -2065,18 +2065,18 @@ def main():
                 ############ ONLINE TESTS (OPTIONAL) ##########################
                 while not online_and_master_tests(online_test_interval, local_dbinstance, local_host, logman):  #will check if Online and if Primary and not Stand-By, and then if Master, but only if online_test_interval > -1           
                     log("\nOne of the online checks found out that this HANA instance, "+str(local_dbinstance)+", is not online or not master. ", logman)
+                    ############ CLEANUP of OWN LOGS, HANACLEANER MUST DO even though HANA is OFFLINE ##########################
+                    if minRetainedOutputDays >= 0:
+                        nCleaned = clean_output(minRetainedOutputDays, sqlman, logman)
+                        logmessage = str(nCleaned)+" hanacleaner daily log files were removed (-or) even though HANA is offline"
+                        log(logmessage, logman)
+                        emailmessage += logmessage+"\n"
+                    else:
+                        log("    (Cleaning of the hanacleaner logs was not done since -or was negative (or not specified))", logman)  
                     if online_test_interval == 0:
                         log("HANACleaner will now abort since online_test_interval = 0.", logman, True)
                         os._exit(1)
                     else:
-                        ############ CLEANUP of OWN LOGS, HANACLEANER MUST DO even though HANA is OFFLINE ##########################
-                        if minRetainedOutputDays >= 0:
-                            nCleaned = clean_output(minRetainedOutputDays, sqlman, logman)
-                            logmessage = str(nCleaned)+" hanacleaner daily log files were removed (-or) even though HANA is offline"
-                            log(logmessage, logman)
-                            emailmessage += logmessage+"\n"
-                        else:
-                            log("    (Cleaning of the hanacleaner logs was not done since -or was negative (or not specified))", logman)  
                         log("HANACleaner will now have a "+str(online_test_interval)+" seconds break and check again if this Instance is online, or master, after the break.\n", logman)
                         time.sleep(float(online_test_interval))  # wait online_test_interval seconds before again checking if HANA is running
                 ############ CHECK THAT USER CAN CONNECT TO HANA ###############  
