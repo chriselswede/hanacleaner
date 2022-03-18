@@ -39,8 +39,8 @@ def printHelp():
     print("         Note: Conceptual -tc is the same as -tf, but -tc is using ALTER SYSTEM CLEAR TRACES ... See SQL Ref. for more info.       ")
     print("         Note: there is a bug (fixed with rev.122.11) that could cause younger trace files to be removed.                          ")
     print("         Note: expensive statements are not included in -tc, see -te below                                                         ")
-    print(" -te     retention days for expensive statement files [days], same as for -tc, but only for expensive statement files, only use    ")  #internal incident 1980358670  
-    print("         if you read and understood SAP Note 2819941 (should probably only be used with use_in_memory_tracking = false),           ")  #My opinion: this is a BUG!!
+    print(" -te     retention days for expensive statement files [days], same as for -tc, but only for expensive statement files, only use    ")  #BUG --> https://jira.tools.sap/browse/HDBKERNEL-7797  
+    print("         if you read and understood SAP Note 2819941 (should probably only be used with use_in_memory_tracking = false),           ")
     print("         default: -1 (not used)                                                                                                    ")
     print(" -tcb    with backup [true/false], the trace files that are removed with the -tc and -te flags are backed up (as a .gz),           ")
     print("         i.e. ALTER SYSTEM CLEAR TRACES ... WITH BACKUP, see SQL Ref., default: false                                              ")
@@ -1369,7 +1369,7 @@ def main():
         print("VERSION ERROR: hanacleaner is only supported for Python 2.7.x (for HANA 2 SPS05 and lower) and for Python 3.7.x (for HANA 2 SPS06 and higher). Did you maybe forget to log in as <sid>adm before executing this?")
         os._exit(1)
     if sys.version_info[0] == 3:
-        print("VERSION WARNING: You are among the first using HANACleaner on Python 3. As always, use on your own risk, and please report issues to christian.hansen01@sap.com. Thank you!")
+        print("VERSION WARNING: You are among the first using HANACleaner on Python 3. Make sure the configuration file only contains ascii characters! As always, use on your own risk, and please report issues to christian.hansen01@sap.com. Thank you!")
 
     #####################   DEFAULTS   ####################
     minRetainedBackups = "-1"
