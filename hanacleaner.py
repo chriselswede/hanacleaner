@@ -1664,7 +1664,8 @@ def main():
 
     ############ GET LOCAL HOST ##########
     #local_host = subprocess.check_output("hostname", shell=True).replace('\n','') if virtual_local_host == "" else virtual_local_host 
-    local_host = run_command("hostname").replace('\n','') if virtual_local_host == "" else virtual_local_host   
+    local_host = run_command("hostname").replace('\n','') if virtual_local_host == "" else virtual_local_host 
+    local_host = local_host.replace(' ', '')  
     if not is_integer(local_host.split('.')[0]):    #first check that it is not an IP address
         local_host = local_host.split('.')[0]  #if full host name is specified in the local host (or virtual host), only the first part is used
 
