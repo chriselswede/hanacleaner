@@ -331,7 +331,7 @@ class EmailSender:
             print("Mail Server: ", self.mailServer)
         else:
             print("Configured mail server will be used.")
-        print("Reciever Emails: ", self.recieverEmails)
+        print("Reciever Emails: ", self.receiverEmails)
 
 ######################## FUNCTION DEFINITIONS ################################
 
