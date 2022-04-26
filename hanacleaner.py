@@ -112,7 +112,7 @@ def printHelp():
     print("         days are removed, default: -1 (not used)            (requires SELECT and DELETE on the _SYS_STATISTICS schema)            ")
     print("         ----  DATA VOLUMES FRAGMENTATION  ----                                                                                    ")
     print(" -fl     fragmentation limit [%], maximum fragmentation of data volume files, of any service, before defragmentation of that       ")
-    print("         service is started: ALTER SYSTEM RECLAIM DATAVOLUME '<host>:<port>’ 120 DEFRAGMENT,        default: -1 (not used)         ")
+    print("         service is started: ALTER SYSTEM RECLAIM DATAVOLUME '<host>:<port>' 120 DEFRAGMENT,        default: -1 (not used)         ")
     print("         Note: If you use System Replication see Q19 in SAP Note 1999880.                                                          ")
     print(" -fo     output fragmentation [true/false], displays data volume statistics before and after defragmentation, default: false       ")
     print("         ----  MULTIPLE ROW STORE TABLE CONTAINERS   ----                                                                          ")
@@ -431,7 +431,7 @@ def get_key_info(dbuserkey, local_host, logman):
     key_environment = key_environment.split('\n')
     key_environment = [ke for ke in key_environment if ke and not ke == 'Operation succeed.']
     ENV = key_environment[1].replace('  ENV : ','').replace(';',',').split(',')
-    key_hosts = [env.split(':')[0].split('.')[0] for env in ENV]  #if full host name is specified in the Key, only the first part is used 
+    key_hosts = [env.split(':')[0].split('.')[0] for env in ENV]  #if full host name is specified in the Key, only the first part is used
     DATABASE = ''
     if len(key_environment) == 4:   # if DATABASE is specified in the key, this will by used in the SQLManager (but if -dbs is specified, -dbs wins)
         DATABASE = key_environment[3].replace('  DATABASE: ','').replace(' ', '')
@@ -1668,7 +1668,6 @@ def main():
     local_host = local_host.replace(' ', '')  
     if not is_integer(local_host.split('.')[0]):    #first check that it is not an IP address
         local_host = local_host.split('.')[0]  #if full host name is specified in the local host (or virtual host), only the first part is used
-
     ############ CHECK EMAIL FLAGS #######
     ### receiver_emails, -en
     if receiver_emails:
