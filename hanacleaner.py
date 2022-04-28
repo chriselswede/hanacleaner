@@ -759,7 +759,7 @@ def clean_trace_files(retainedTraceContentDays, retainedExpensiveTraceContentDay
     return nbrRemovedTraceFiles
 
 def clean_dumps(retainedDumpDays, local_dbinstance, sqlman, logman):
-    path = cdalias('cdglo', local_dbinstance)+"/sapcontrol/snapshots/" 
+    path = (cdalias('cdglo', local_dbinstance)+"/sapcontrol/snapshots/").replace("\n","").replace("'", "") #RHEL put in line endings and strange '
     with open(os.devnull, 'w') as devnull:
         #nbrDumpsBefore = int(subprocess.check_output("ls "+path+"fullsysteminfodump* | wc -l", shell=True, stderr=devnull).strip(' '))
         nbrDumpsBefore = int(run_command("ls "+path+"fullsysteminfodump* | wc -l").strip(' ')) #this might be a problem ... from https://docs.python.org/3/library/subprocess.html#subprocess.getoutput : 
