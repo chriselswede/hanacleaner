@@ -379,13 +379,13 @@ def sendEmail(message, logmanager):
     #output = subprocess.check_output(mailstring, shell=True)
     dummyout = run_command(mailstring)
 
-def try_execute_sql(sql, errorlog, sqlman, logman, exit_on_fail = True):
+def try_execute_sql(sql, errorlog, sqlman, logman, exit_on_fail = True, always_execute = False):
     succeeded = True
     out = ""
     try:
         if sqlman.log:
             log(sql, logman)
-        if sqlman.execute:
+        if sqlman.execute or always_execute:
             #out = subprocess.check_output(sqlman.hdbsql_jAaxU + " \""+sql+"\"", shell=True)
             out = run_command(sqlman.hdbsql_jAaxU + " \""+sql+"\"")
     except:
@@ -406,7 +406,7 @@ def is_email(s):
 
 def hana_version_revision_maintenancerevision(sqlman, logman):
     #command_run = subprocess.check_output(sqlman.hdbsql_jAU + " \"select value from sys.m_system_overview where name = 'Version'\"", shell=True)
-    command_run = run_command(sqlman.hdbsql_jAU + " \"select value from sys.m_system_overview where name = 'Version'\"")
+    command_run = run_command(sqlman.hdbsql_jAaxU + " \"select value from sys.m_system_overview where name = 'Version'\"")
     hanaver = command_run.splitlines(1)[2].split('.')[0].replace('| ','')
     hanarev = command_run.splitlines(1)[2].split('.')[2]
     hanamrev = command_run.splitlines(1)[2].split('.')[3]
@@ -2085,7 +2085,7 @@ def main():
                 ############ CHECK THAT USER CAN CONNECT TO HANA ###############  
                 sql = "SELECT * from DUMMY" 
                 errorlog = "USER ERROR: The user represented by the key "+dbuserkey+" cannot connect to the system. Make sure this user is properly saved in hdbuserstore."
-                [dummy_out, succeeded] = try_execute_sql(sql, errorlog, sqlman, logman)
+                [dummy_out, succeeded] = try_execute_sql(sql, errorlog, sqlman, logman, True, True) # always check key, even if -es true
                 dummy_out = dummy_out.strip("\n").strip("|").strip(" ") 
                 if sqlman.execute and (dummy_out != 'X' or not succeeded):
                     log("USER ERROR: The user represented by the key "+dbuserkey+" cannot connect to the system. Make sure this user is properly saved in hdbuserstore.", logman, True)
