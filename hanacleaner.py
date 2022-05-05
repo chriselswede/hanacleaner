@@ -428,6 +428,9 @@ def get_key_info(dbuserkey, local_host, logman):
     except:
         log("ERROR, the key "+dbuserkey+" is not maintained in hdbuserstore.", logman, True)
         os._exit(1)
+    if "NOT FOUND" in key_environment:
+        log("ERROR, the key "+dbuserkey+" is not maintained in hdbuserstore.", logman, True)
+        os._exit(1)
     key_environment = key_environment.split('\n')
     key_environment = [ke for ke in key_environment if ke and not ke == 'Operation succeed.']
     ENV = key_environment[1].replace('  ENV : ','').replace(';',',').split(',')
