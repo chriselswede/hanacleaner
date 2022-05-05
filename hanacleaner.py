@@ -406,7 +406,7 @@ def is_email(s):
 
 def hana_version_revision_maintenancerevision(sqlman, logman):
     #command_run = subprocess.check_output(sqlman.hdbsql_jAU + " \"select value from sys.m_system_overview where name = 'Version'\"", shell=True)
-    command_run = run_command(sqlman.hdbsql_jAaxU + " \"select value from sys.m_system_overview where name = 'Version'\"")
+    command_run = run_command(sqlman.hdbsql_jAU + " \"select value from sys.m_system_overview where name = 'Version'\"")
     hanaver = command_run.splitlines(1)[2].split('.')[0].replace('| ','')
     hanarev = command_run.splitlines(1)[2].split('.')[2]
     hanamrev = command_run.splitlines(1)[2].split('.')[3]
