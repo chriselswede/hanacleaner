@@ -145,6 +145,10 @@ def printHelp():
     print("         ---- VIRTUAL TABLE STATISTICS CREATION ----                                                                               ")
     print(" -vs     create statistics for virtual tables [true/false], switch to create optimization statistics for those virtual tables      ")
     print("         that are missing statistics according to SAP Note 1872652 (Note: could cause expenive operations),    default: false      ")
+    print(" -vm     max number columns for statistic creations. Creating VTs' statistics can be expensive if there are many columns           ")
+    print("         (SAP Note 1872652), so if -vm is less number of columns of the VT, statistics will be created with multiple executions    ")
+    print("         Example: if -vm = 100 and # columns of the VT is 230, 3 executions will be done for this VT, the last execution with 30   ")
+    print("         columns,       default: 1000                                                                                              ")    
     print(" -vt     default statistics type [HISTOGRAM/SIMPLE/TOPK/SKETCH/SAMPLE/RECORD_COUNT], type of data statistics object                ")
     print("         default: HISTOGRAM                                                                                                        ")
     print(" -vn     max number of rows for defult type [number rows], if the VT has less or equal number of rows specified by -vn the default ")
@@ -517,7 +521,7 @@ def get_all_databases(execute_sql, hdbsql_string, dbuserkey, local_host, out_sql
     return all_databases
 
 def checkIfAcceptedFlag(word):
-    if not word in ["-h", "--help", "-d", "--disclaimer", "-ff", "-be", "-bd", "-bb", "-bo", "-br", "-bn", "-tc", "-te", "-tcb", "-tbd", "-tmo", "-tf", "-to", "-td", "-dr", "-gr", "-gd", "-gw", "-gm", "-zb", "-zp", "-zl", "-zo", "-zk", "-ar", "-kr", "-ao", "-ad", "-om", "-oo", "-lr", "-eh", "-eu", "-ur", "-pe", "-fl", "-fo", "-rc", "-ro", "-cc", "-ce", "-cr", "-cs", "-cd", "-cq", "-cu", "-cb", "-cp", "-cm", "-co", "-vs", "-vt", "-vn", "-vtt", "-vto", "-vr", "-vnr", "-vl", "-ir", "-es", "-os", "-op", "-of", "-or", "-oc", "-oi", "-fs", "-if", "-df", "-hci", "-so", "-ssl", "-vlh", "-k", "-dbs", "-en", "-et", "-ena", "-enc", "-ens", "-enm"]:
+    if not word in ["-h", "--help", "-d", "--disclaimer", "-ff", "-be", "-bd", "-bb", "-bo", "-br", "-bn", "-tc", "-te", "-tcb", "-tbd", "-tmo", "-tf", "-to", "-td", "-dr", "-gr", "-gd", "-gw", "-gm", "-zb", "-zp", "-zl", "-zo", "-zk", "-ar", "-kr", "-ao", "-ad", "-om", "-oo", "-lr", "-eh", "-eu", "-ur", "-pe", "-fl", "-fo", "-rc", "-ro", "-cc", "-ce", "-cr", "-cs", "-cd", "-cq", "-cu", "-cb", "-cp", "-cm", "-co", "-vs", "-vm", "-vt", "-vn", "-vtt", "-vto", "-vr", "-vnr", "-vl", "-ir", "-es", "-os", "-op", "-of", "-or", "-oc", "-oi", "-fs", "-if", "-df", "-hci", "-so", "-ssl", "-vlh", "-k", "-dbs", "-en", "-et", "-ena", "-enc", "-ens", "-enm"]:
         print("INPUT ERROR: ", word, " is not one of the accepted input flags. Please see --help for more information.")
         os._exit(1)
 
@@ -1260,8 +1264,8 @@ def force_compression(maxRawComp, maxEstComp, maxRowComp, maxMemComp, minDistCom
             log("    "+tab[0]+"."+tab[1], logman)
         log("\n", logman)
     return [len(tablesToCompress), failed]
-    
-def create_vt_statistics(vtSchemas, defaultVTStatType, maxRowsForDefaultVT, largeVTStatType, otherDBVTStatType, ignore2ndMon, sqlman, logman):  #SAP Note 1872652: Creating statistics on a virtual table can be an expensive operation. 
+
+def create_vt_statistics(vtSchemas, maxColumnsOfVT, defaultVTStatType, maxRowsForDefaultVT, largeVTStatType, otherDBVTStatType, ignore2ndMon, sqlman, logman):  #SAP Note 1872652: Creating statistics on a virtual table can be an expensive operation. 
     #Default statistics type: HISTOGRAM --> Creates a data statistics object that helps the query optimizer estimate the data distribution in a single-column data source
     #nVTs = int(subprocess.check_output(sqlman.hdbsql_jAQaxU + " \"select count(*) from SYS.VIRTUAL_TABLES\"", shell=True).strip(' '))
     nVTs = int(run_command(sqlman.hdbsql_jAQaxU + " \"select count(*) from SYS.VIRTUAL_TABLES\"").strip(' '))
@@ -1284,13 +1288,15 @@ def create_vt_statistics(vtSchemas, defaultVTStatType, maxRowsForDefaultVT, larg
                 #columns = subprocess.check_output(sqlman.hdbsql_jAaxU + " \"select column_name from PUBLIC.TABLE_COLUMNS where table_name = '"+vt[1]+"' and schema_name = '"+vt[0]+"'\"", shell=True).splitlines(1)
                 columns = run_command(sqlman.hdbsql_jAaxU + " \"select column_name from PUBLIC.TABLE_COLUMNS where table_name = '"+vt[1]+"' and schema_name = '"+vt[0]+"'\"").splitlines(1)
                 columns =[col.strip('\n').strip('|').strip(' ') for col in columns]
-                columns = '\\\", \\\"'.join(columns)                                                                                  # necessary for columns with mixed letter case
-                sql = 'CREATE STATISTICS ON \\\"'+vt[0]+'\\\".\\\"'+vt[1]+'\\\" (\\\"'+columns+'\\\") TYPE '+statType                 # necessary for tables starting with / and for tables with mixed letter case 
-                errorlog = "\nERROR: The user represented by the key "+sqlman.key+" could not create statistics on "+vt[0]+"."+vt[1]+". \nOne possible reason for this is insufficient privilege\n"
-                errorlog += "\nTry, as the user represented by the key "+sqlman.key+" to simply do  SELECT * FROM "+vt[0]+"."+vt[1]+". If that does not work then it could be that the privileges of source system's technical user (used in the SDA setup) is not sufficient.\n"
-                errorlog += "If there is another error (i.e. not insufficient privilege) then please try to execute \n"+sql+"\nin e.g. the SQL editor in SAP HANA Studio. If you get the same error then this has nothing to do with hanacleaner\n"
-                errorlog += "It could be that the respective ODBC driver was not properly set up. Please then follow the SAP HANA Administration Guide."
-                try_execute_sql(sql, errorlog, sqlman, logman, exit_on_fail = False)  
+                column_chunks = [columns[x:x+maxColumnsOfVT] for x in range(0, len(columns), maxColumnsOfVT)]
+                for chunk in column_chunks:
+                    columns = '\\\", \\\"'.join(chunk)                                                                                  # necessary for columns with mixed letter case
+                    sql = 'CREATE STATISTICS ON \\\"'+vt[0]+'\\\".\\\"'+vt[1]+'\\\" (\\\"'+columns+'\\\") TYPE '+statType                 # necessary for tables starting with / and for tables with mixed letter case 
+                    errorlog = "\nERROR: The user represented by the key "+sqlman.key+" could not create statistics on "+vt[0]+"."+vt[1]+". \nOne possible reason for this is insufficient privilege\n"
+                    errorlog += "\nTry, as the user represented by the key "+sqlman.key+" to simply do  SELECT * FROM "+vt[0]+"."+vt[1]+". If that does not work then it could be that the privileges of source system's technical user (used in the SDA setup) is not sufficient.\n"
+                    errorlog += "If there is another error (i.e. not insufficient privilege) then please try to execute \n"+sql+"\nin e.g. the SQL editor in SAP HANA Studio. If you get the same error then this has nothing to do with hanacleaner\n"
+                    errorlog += "It could be that the respective ODBC driver was not properly set up. Please then follow the SAP HANA Administration Guide."
+                    try_execute_sql(sql, errorlog, sqlman, logman, exit_on_fail = False)  
     #nVTsWithoutStatAfter = int(subprocess.check_output(sqlman.hdbsql_jAQaxU + " \"select COUNT(*) from SYS.VIRTUAL_TABLES where TABLE_NAME NOT IN (select distinct DATA_SOURCE_OBJECT_NAME from SYS.DATA_STATISTICS)\"", shell=True).strip(' '))
     nVTsWithoutStatAfter = int(run_command(sqlman.hdbsql_jAQaxU + " \"select COUNT(*) from SYS.VIRTUAL_TABLES where TABLE_NAME NOT IN (select distinct DATA_SOURCE_OBJECT_NAME from SYS.DATA_STATISTICS)\"").strip(' '))
     return [nVTs, nVTsWithoutStatBefore - nVTsWithoutStatAfter]
@@ -1439,6 +1445,7 @@ def main():
     mergeBeforeComp = 'false'
     outComp = 'false'
     createVTStat = 'false'
+    maxColumnsOfVT = '1000'
     defaultVTStatType = 'HISTOGRAM'
     maxRowsForDefaultVT = '-1'
     largeVTStatType = 'SIMPLE'
@@ -1547,6 +1554,7 @@ def main():
                     mergeBeforeComp                   = getParameterFromFile(firstWord, '-cm', flagValue, flag_file, flag_log, mergeBeforeComp)
                     outComp                           = getParameterFromFile(firstWord, '-co', flagValue, flag_file, flag_log, outComp)
                     createVTStat                      = getParameterFromFile(firstWord, '-vs', flagValue, flag_file, flag_log, createVTStat)
+                    maxColumnsOfVT                    = getParameterFromFile(firstWord, '-vm', flagValue, flag_file, flag_log, maxColumnsOfVT)
                     defaultVTStatType                 = getParameterFromFile(firstWord, '-vt', flagValue, flag_file, flag_log, defaultVTStatType)
                     maxRowsForDefaultVT               = getParameterFromFile(firstWord, '-vn', flagValue, flag_file, flag_log, maxRowsForDefaultVT)
                     largeVTStatType                   = getParameterFromFile(firstWord, '-vtt', flagValue, flag_file, flag_log, largeVTStatType)
@@ -1634,6 +1642,7 @@ def main():
     mergeBeforeComp                   = getParameterFromCommandLine(sys.argv, '-cm', flag_log, mergeBeforeComp)
     outComp                           = getParameterFromCommandLine(sys.argv, '-co', flag_log, outComp)
     createVTStat                      = getParameterFromCommandLine(sys.argv, '-vs', flag_log, createVTStat)
+    maxColumnsOfVT                    = getParameterFromCommandLine(sys.argv, '-vm', flag_log, maxColumnsOfVT)
     defaultVTStatType                 = getParameterFromCommandLine(sys.argv, '-vt', flag_log, defaultVTStatType)
     maxRowsForDefaultVT               = getParameterFromCommandLine(sys.argv, '-vn', flag_log, maxRowsForDefaultVT)
     largeVTStatType                   = getParameterFromCommandLine(sys.argv, '-vtt', flag_log, largeVTStatType)
@@ -1954,6 +1963,11 @@ def main():
     outComp = checkAndConvertBooleanFlag(outComp, "-co", logman)
     ### createVTStat, -vs
     createVTStat = checkAndConvertBooleanFlag(createVTStat, "-vs", logman)
+    ### maxColumnsOfVT, -vm
+    if not is_integer(maxColumnsOfVT):
+        log("INPUT ERROR: -vm must be an integer. Please see --help for more information.", logman, True)
+        os._exit(1)
+    maxColumnsOfVT = int(maxColumnsOfVT)
     ### defaultVTStatType, -vt
     if defaultVTStatType not in ['HISTOGRAM', 'SIMPLE', 'TOPK', 'SKETCH', 'SAMPLE', 'RECORD_COUNT']:
         log("INPUT ERROR: Wrong input option of -vt. Please see --help for more information.", logman, True)
@@ -2219,7 +2233,7 @@ def main():
                 else:
                     log("    (Compression re-optimization was not done since at least one flag in each of the three compression flag groups was negative (or not specified))", logman)
                 if createVTStat:
-                    [nVTs, nVTsOptimized] = create_vt_statistics(vtSchemas, defaultVTStatType, maxRowsForDefaultVT, largeVTStatType, otherDBVTStatType, ignore2ndMon, sqlman, logman)
+                    [nVTs, nVTsOptimized] = create_vt_statistics(vtSchemas, maxColumnsOfVT, defaultVTStatType, maxRowsForDefaultVT, largeVTStatType, otherDBVTStatType, ignore2ndMon, sqlman, logman)
                     logmessage = "Optimization statistics was created for "+str(nVTsOptimized)+" virtual tables (in total there are "+str(nVTs)+" virtual tables) (-vs)" 
                     log(logmessage, logman)
                     emailmessage += logmessage+"\n"
