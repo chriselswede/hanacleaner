@@ -339,9 +339,13 @@ class EmailSender:
 
 ######################## FUNCTION DEFINITIONS ################################
 
-def run_command(cmd):
+def run_command(cmd, stderrdevnull = False):
     if sys.version_info[0] == 2: 
-        out = subprocess.check_output(cmd, shell=True).strip("\n")
+        if stderrdevnull:
+            with open(os.devnull, 'w') as devnull:
+                out = subprocess.check_output(cmd, shell=True, stderr=devnull).strip("\n")
+        else:
+            out = subprocess.check_output(cmd, shell=True).strip("\n")
     elif sys.version_info[0] == 3:
         out = subprocess.run(cmd, shell=True, capture_output=True, text=True).stdout.strip("\n")
     else:
@@ -770,19 +774,19 @@ def clean_dumps(retainedDumpDays, local_dbinstance, sqlman, logman):
     if ' ' in path:
         print("ERROR: The path should not contain a empty space! path = \n", path)
         os._exit(1)
-    with open(os.devnull, 'w') as devnull:
-        #nbrDumpsBefore = int(subprocess.check_output("ls "+path+"fullsysteminfodump* | wc -l", shell=True, stderr=devnull).strip(' '))
-        nbrDumpsBefore = int(run_command("ls "+path+"fullsysteminfodump* | wc -l").strip(' ')) #this might be a problem ... from https://docs.python.org/3/library/subprocess.html#subprocess.getoutput : 
-        #The stdout and stderr arguments may not be supplied at the same time as capture_output. If you wish to capture and combine both streams into one, use stdout=PIPE and stderr=STDOUT instead of capture_output.
-        if not nbrDumpsBefore:
-            return 0
-        if sqlman.log:
-            log("find "+path+"fullsysteminfodump* -mtime +"+retainedDumpDays+" -delete", logman)
-        if sqlman.execute:
-            #subprocess.check_output("find "+path+"fullsysteminfodump* -mtime +"+retainedDumpDays+" -delete", shell=True, stderr=devnull)
-            dummyout = run_command("find "+path+"fullsysteminfodump* -mtime +"+retainedDumpDays+" -delete")
-        #nbrDumpsAfter = int(subprocess.check_output("ls "+path+"fullsysteminfodump* | wc -l", shell=True, stderr=devnull).strip(' ')) 
-        nbrDumpsAfter = int(run_command("ls "+path+"fullsysteminfodump* | wc -l").strip(' ')) 
+    #with open(os.devnull, 'w') as devnull:  not needed anymore.. build in inside run_command, but only needed for python 2.7 .. remove this!
+    #nbrDumpsBefore = int(subprocess.check_output("ls "+path+"fullsysteminfodump* | wc -l", shell=True, stderr=devnull).strip(' '))
+    nbrDumpsBefore = int(run_command("ls "+path+"fullsysteminfodump* | wc -l", True).strip(' ')) #this might be a problem ... from https://docs.python.org/3/library/subprocess.html#subprocess.getoutput : 
+    #The stdout and stderr arguments may not be supplied at the same time as capture_output. If you wish to capture and combine both streams into one, use stdout=PIPE and stderr=STDOUT instead of capture_output.
+    if not nbrDumpsBefore:
+        return 0
+    if sqlman.log:
+        log("find "+path+"fullsysteminfodump* -mtime +"+retainedDumpDays+" -delete", logman)
+    if sqlman.execute:
+        #subprocess.check_output("find "+path+"fullsysteminfodump* -mtime +"+retainedDumpDays+" -delete", shell=True, stderr=devnull)
+        dummyout = run_command("find "+path+"fullsysteminfodump* -mtime +"+retainedDumpDays+" -delete")
+    #nbrDumpsAfter = int(subprocess.check_output("ls "+path+"fullsysteminfodump* | wc -l", shell=True, stderr=devnull).strip(' ')) 
+    nbrDumpsAfter = int(run_command("ls "+path+"fullsysteminfodump* | wc -l").strip(' ')) 
     return nbrDumpsBefore - nbrDumpsAfter
            
 
@@ -1348,7 +1352,7 @@ def clean_anyfile(retainedAnyFileDays, anyFilePaths, anyFileWords, anyFileMaxDep
     for path, word in zip(anyFilePaths, anyFileWords):
         #nFilesBefore = int(subprocess.check_output("find "+path+" -maxdepth "+str(anyFileMaxDepth)+" -type f | wc -l", shell=True).strip(' '))
         nFilesBefore = int(run_command("find "+path+" -maxdepth "+str(anyFileMaxDepth)+" -type f | wc -l").strip(' '))
-        with open(os.devnull, 'w') as devnull:
+        with open(os.devnull, 'w') as devnull:  #not needed anymore.. build in inside run_command, but only needed for python 2.7 ... remove this! 
             if sqlman.log:
                 log("find "+path+" -maxdepth "+str(anyFileMaxDepth)+" -name '*"+word+"*' -type f "+retainedAnyFileDaysString+" -delete", logman)
             if sqlman.execute:
