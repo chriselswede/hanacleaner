@@ -1,9 +1,9 @@
-# SAP HANACleaner #
+# HANACleaner #
 A house keeping script for SAP HANA
 ---
 
 ### DESCRIPTION:  
-The SAP HANA cleaner is a house keeping script for SAP HANA. It can be used to clean the backup catalog, diagnostic files, alerts, to compress the backup logs, and much more. It should be executed by <sid>adm or, in case you use a CRON job, with the same environment as the <sid>adm. See SAP Note [2399996](https://launchpad.support.sap.com/#/notes/=2399996) and SAP Note [2400024](https://launchpad.support.sap.com/#/notes/=2400024). For a list of all input flags execute with  
+The HANA cleaner is a house keeping script for SAP HANA. It can be used to clean the backup catalog, diagnostic files, alerts, to compress the backup logs, and much more. It should be executed by <sid>adm or, in case you use a CRON job, with the same environment as the <sid>adm. See SAP Note [2399996](https://launchpad.support.sap.com/#/notes/=2399996) and SAP Note [2400024](https://launchpad.support.sap.com/#/notes/=2400024). For a list of all input flags execute with  
    `python hanacleaner.py --help`
 
 
