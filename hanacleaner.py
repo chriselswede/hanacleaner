@@ -982,14 +982,14 @@ def cdalias(alias, local_dbinstance):   # alias e.g. cdtrace, cdhdb, ...
     if whoami.lower() == 'root':
         sidadm = get_sid().lower()+'adm'
         su_cmd = 'su - '+sidadm+' '
-    alias_cmd = su_cmd+'/bin/bash -l -c \'alias '+alias+'\''
+    alias_cmd = su_cmd+'/bin/bash -l -c \'alias '+alias+'\'|tail -1'   #tail -1 to remove other messages from e.g. profile.local
     #command_run = subprocess.check_output(alias_cmd, shell=True)
     command_run = run_command(alias_cmd)
     pieces = re.sub(r'.*cd ','',command_run).strip("\n").strip("'").split("/")    #to remove ANSI escape codes (only needed in few systems)
     path = ''
     for piece in pieces:
         if piece and piece[0] == '$':
-            piece_cmd = su_cmd+'/bin/bash -l -c'+" \' echo "+piece+'\''
+            piece_cmd = su_cmd+'/bin/bash -l -c'+" \' echo "+piece+'\'|tail -1'   #tail -1 to remove other messages from e.g. profile.local
             #piece = subprocess.check_output(piece_cmd, shell=True).strip("\n")
             piece = run_command(piece_cmd)
         path = path + '/' + piece + '/' 
