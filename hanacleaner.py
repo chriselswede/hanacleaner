@@ -640,7 +640,7 @@ def clean_backup_catalog(minRetainedBackups, minRetainedDays, deleteBackups, out
         return [0,0]
     sqls_for_cleanup = sqls_for_backup_catalog_cleanup(minRetainedBackups, minRetainedDays, deleteBackups, sqlman)
     if sqls_for_cleanup:
-        sql_for_catalog = "select ENTRY_ID, ENTRY_TYPE_NAME, BACKUP_ID, SYS_START_TIME, STATE_NAME from sys.m_backup_catalog"
+        sql_for_catalog = "select ENTRY_ID, ENTRY_TYPE_NAME, BACKUP_ID, SYS_START_TIME from sys.m_backup_catalog"
         if outputCatalog or outputDeletedCatalog:
             #beforeCatalog = subprocess.check_output(sqlman.hdbsql_jAxU + " \"" + sql_for_catalog + "\"", shell=True)
             beforeCatalog = run_command(sqlman.hdbsql_jAxU + " \"" + sql_for_catalog + "\"")
