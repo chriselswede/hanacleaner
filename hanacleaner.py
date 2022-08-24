@@ -114,6 +114,8 @@ def printHelp():
     print(" -fl     fragmentation limit [%], maximum fragmentation of data volume files, of any service, before defragmentation of that       ")
     print("         service is started: ALTER SYSTEM RECLAIM DATAVOLUME '<host>:<port>' 120 DEFRAGMENT,        default: -1 (not used)         ")
     print("         Note: If you use System Replication see Q19 in SAP Note 1999880.                                                          ")
+    print(" -ov     percentage of overload size: specifies the desired percentage of the payload to which the data volume should be reduced   ")
+    print("         default: 120                                                                                                              ")
     print(" -fo     output fragmentation [true/false], displays data volume statistics before and after defragmentation, default: false       ")
     print("         ----  MULTIPLE ROW STORE TABLE CONTAINERS   ----                                                                          ")
     print(" -rc     row store containers cleanup [true/false], switch to clean up multiple row store table containers, default: false         ")
@@ -525,7 +527,7 @@ def get_all_databases(execute_sql, hdbsql_string, dbuserkey, local_host, out_sql
     return all_databases
 
 def checkIfAcceptedFlag(word):
-    if not word in ["-h", "--help", "-d", "--disclaimer", "-ff", "-be", "-bd", "-bb", "-bo", "-br", "-bn", "-tc", "-te", "-tcb", "-tbd", "-tmo", "-tf", "-to", "-td", "-dr", "-gr", "-gd", "-gw", "-gm", "-zb", "-zp", "-zl", "-zo", "-zk", "-ar", "-kr", "-ao", "-ad", "-om", "-oo", "-lr", "-eh", "-eu", "-ur", "-pe", "-fl", "-fo", "-rc", "-ro", "-cc", "-ce", "-cr", "-cs", "-cd", "-cq", "-cu", "-cb", "-cp", "-cm", "-co", "-vs", "-vm", "-vt", "-vn", "-vtt", "-vto", "-vr", "-vnr", "-vl", "-ir", "-es", "-os", "-op", "-of", "-or", "-oc", "-oi", "-fs", "-if", "-df", "-hci", "-so", "-ssl", "-vlh", "-k", "-dbs", "-en", "-et", "-ena", "-enc", "-ens", "-enm"]:
+    if not word in ["-h", "--help", "-d", "--disclaimer", "-ff", "-be", "-bd", "-bb", "-bo", "-br", "-bn", "-tc", "-te", "-tcb", "-tbd", "-tmo", "-tf", "-to", "-td", "-dr", "-gr", "-gd", "-gw", "-gm", "-zb", "-zp", "-zl", "-zo", "-zk", "-ar", "-kr", "-ao", "-ad", "-om", "-oo", "-lr", "-eh", "-eu", "-ur", "-pe", "-fl", "-ov", "-fo", "-rc", "-ro", "-cc", "-ce", "-cr", "-cs", "-cd", "-cq", "-cu", "-cb", "-cp", "-cm", "-co", "-vs", "-vm", "-vt", "-vn", "-vtt", "-vto", "-vr", "-vnr", "-vl", "-ir", "-es", "-os", "-op", "-of", "-or", "-oc", "-oi", "-fs", "-if", "-df", "-hci", "-so", "-ssl", "-vlh", "-k", "-dbs", "-en", "-et", "-ena", "-enc", "-ens", "-enm"]:
         print("INPUT ERROR: ", word, " is not one of the accepted input flags. Please see --help for more information.")
         os._exit(1)
 
@@ -1097,7 +1099,7 @@ def clean_pending_emails(pendingEmailsDays, sqlman, logman):
     return nbrEmailsBefore - nbrEmailsAfter    
           
 
-def defragment(fragmentationLimit, outputFragmentation, sqlman, logman):
+def defragment(fragmentationLimit, outputFragmentation, overloadSize, sqlman, logman):
     #fragPerPortBefore = subprocess.check_output(sqlman.hdbsql_jAaxU + " \"SELECT HOST, PORT, USED_SIZE, TOTAL_SIZE from SYS.M_VOLUME_FILES WHERE FILE_TYPE = 'DATA'\" ", shell=True).splitlines(1)
     fragPerPortBefore = run_command(sqlman.hdbsql_jAaxU + " \"SELECT HOST, PORT, USED_SIZE, TOTAL_SIZE from SYS.M_VOLUME_FILES WHERE FILE_TYPE = 'DATA'\" ").splitlines(1)
     fragPerPortBefore = [port.strip('\n').strip('|').split('|') for port in fragPerPortBefore]    
@@ -1111,7 +1113,7 @@ def defragment(fragmentationLimit, outputFragmentation, sqlman, logman):
         log("\n", logman)
     for port in fragPerPortBefore:
         if port[4] > fragmentationLimit:
-            sql = "ALTER SYSTEM RECLAIM DATAVOLUME '"+port[0]+":"+port[1]+"' 120 DEFRAGMENT"
+            sql = "ALTER SYSTEM RECLAIM DATAVOLUME '"+port[0]+":"+port[1]+"' "+str(overloadSize)+" DEFRAGMENT"
             errorlog = "\nERROR: The user represented by the key "+sqlman.key+" could not defragment the data volumes. \nOne possible reason for this is insufficient privilege, \ne.g. lack of the privilege RESOURCE ADMIN.\n"
             errorlog += "If there is another error (i.e. not insufficient privilege) then please try to execute \n"+sql+"\nin e.g. the SQL editor in SAP HANA Studio. If you get the same error then this has nothing to do with hanacleaner"
             errorlog += "Note: If you use System Replication see Q19 in SAP Note 1999880"
@@ -1436,6 +1438,7 @@ def main():
     retainedAuditLogDays = "-1"
     pendingEmailsDays = "-1"
     fragmentationLimit = "-1" # percent
+    overloadSize = "120"
     outputFragmentation = "false"
     hanacleaner_interval = "-1"
     rcContainers = "false"
@@ -1546,6 +1549,7 @@ def main():
                     retainedAuditLogDays              = getParameterFromFile(firstWord, '-ur', flagValue, flag_file, flag_log, retainedAuditLogDays)
                     pendingEmailsDays                 = getParameterFromFile(firstWord, '-pe', flagValue, flag_file, flag_log, pendingEmailsDays)
                     fragmentationLimit                = getParameterFromFile(firstWord, '-fl', flagValue, flag_file, flag_log, fragmentationLimit)
+                    overloadSize                      = getParameterFromFile(firstWord, '-ov', flagValue, flag_file, flag_log, overloadSize)
                     outputFragmentation               = getParameterFromFile(firstWord, '-fo', flagValue, flag_file, flag_log, outputFragmentation)
                     rcContainers                      = getParameterFromFile(firstWord, '-rc', flagValue, flag_file, flag_log, rcContainers)
                     outputRcContainers                = getParameterFromFile(firstWord, '-ro', flagValue, flag_file, flag_log, outputRcContainers)
@@ -1634,6 +1638,7 @@ def main():
     retainedAuditLogDays              = getParameterFromCommandLine(sys.argv, '-ur', flag_log, retainedAuditLogDays)
     pendingEmailsDays                 = getParameterFromCommandLine(sys.argv, '-pe', flag_log, pendingEmailsDays)
     fragmentationLimit                = getParameterFromCommandLine(sys.argv, '-fl', flag_log, fragmentationLimit)
+    overloadSize                      = getParameterFromCommandLine(sys.argv, '-ov', flag_log, overloadSize)
     outputFragmentation               = getParameterFromCommandLine(sys.argv, '-fo', flag_log, outputFragmentation)
     rcContainers                      = getParameterFromCommandLine(sys.argv, '-rc', flag_log, rcContainers)
     outputRcContainers                = getParameterFromCommandLine(sys.argv, '-ro', flag_log, outputRcContainers)
@@ -1916,6 +1921,11 @@ def main():
         log("INPUT ERROR: -fl must be an integer. Please see --help for more information.", logman, True)
         os._exit(1)
     fragmentationLimit = int(fragmentationLimit)
+   ### overloadSize, -ov      
+    if not is_integer(overloadSize):  
+        log("INPUT ERROR: -ov  must be an integer. Please see --help for more information.", logman)
+        os._exit(1)            
+    overloadSize = int(overloadSize)
     ### outputFragmentation, -fo
     outputFragmentation = checkAndConvertBooleanFlag(outputFragmentation, "-fo", logman)
     ### rcContainers, -rc
@@ -2209,7 +2219,7 @@ def main():
                 else:
                     log("    (Cleaning of pending emails was not done since -pe was -1 (or not specified))", logman)  
                 if fragmentationLimit >= 0:
-                    defragmentedPerPort = defragment(fragmentationLimit, outputFragmentation, sqlman, logman)
+                    defragmentedPerPort = defragment(fragmentationLimit, outputFragmentation, overloadSize, sqlman, logman)
                     if defragmentedPerPort:
                         for port in defragmentedPerPort:
                             if port[2] > 0:
