@@ -164,6 +164,10 @@ def printHelp():
     print("         ---- VIRTUAL TABLE STATISTICS REFRESH ----                                                                                ")
     print(" -vnr    refresh age of VT statistics [number days > 0], if the VT statistics of a table is older than this number of days it will ")
     print("         be refreshed      (Note: -vl and -vr holds also for refresh)                                   default: -1 (no refresh)   ")
+    print("         ---- DATA STATISTICS REFRESH ----                                                                                         ")
+    print(" -dsr    refresh age of data statistics [number days > 0], if the data statistics, found in DATA_STATISTICS is older than this     ")
+    print("         number of days it will be refreshed (see SAP Note 2800028)            default: -1 (no refresh)                            ")
+    print("         Note: This is the same as -vnr except that -vl and -vr are ignored.                                                       ")
     print("         ---- INIFILE CONTENT HISTORY ----                                                                                         ")
     print(" -ir     inifile content history retention [days], deletes older inifile content history, default: -1 (not used) (should > 1 year) ")
     print("         Note: Only supported with 03<SPS<SPS05.                                                                                   ")
@@ -520,7 +524,7 @@ def get_all_databases(execute_sql, hdbsql_string, dbuserkey, local_host, out_sql
     return all_databases
 
 def checkIfAcceptedFlag(word):
-    if not word in ["-h", "--help", "-d", "--disclaimer", "-ff", "-be", "-bd", "-bb", "-bo", "-br", "-bn", "-tc", "-te", "-tcb", "-tbd", "-tmo", "-tf", "-to", "-td", "-dr", "-gr", "-gd", "-gw", "-gm", "-zb", "-zp", "-zl", "-zo", "-zk", "-ar", "-kr", "-ao", "-ad", "-om", "-oo", "-lr", "-eh", "-eu", "-ur", "-pe", "-fl", "-fo", "-rc", "-ro", "-cc", "-ce", "-cr", "-cs", "-cd", "-cq", "-cu", "-cb", "-cp", "-cm", "-co", "-vs", "-vm", "-vt", "-vn", "-vtt", "-vto", "-vr", "-vnr", "-vl", "-ir", "-es", "-os", "-op", "-of", "-or", "-oc", "-oi", "-fs", "-if", "-df", "-hci", "-so", "-ssl", "-vlh", "-k", "-dbs", "-en", "-et", "-ena", "-enc", "-ens", "-enm"]:
+    if not word in ["-h", "--help", "-d", "--disclaimer", "-ff", "-be", "-bd", "-bb", "-bo", "-br", "-bn", "-tc", "-te", "-tcb", "-tbd", "-tmo", "-tf", "-to", "-td", "-dr", "-gr", "-gd", "-gw", "-gm", "-zb", "-zp", "-zl", "-zo", "-zk", "-ar", "-kr", "-ao", "-ad", "-om", "-oo", "-lr", "-eh", "-eu", "-ur", "-pe", "-fl", "-fo", "-rc", "-ro", "-cc", "-ce", "-cr", "-cs", "-cd", "-cq", "-cu", "-cb", "-cp", "-cm", "-co", "-vs", "-vm", "-vt", "-vn", "-vtt", "-vto", "-vr", "-vnr", "-dsr", "-vl", "-ir", "-es", "-os", "-op", "-of", "-or", "-oc", "-oi", "-fs", "-if", "-df", "-hci", "-so", "-ssl", "-vlh", "-k", "-dbs", "-en", "-et", "-ena", "-enc", "-ens", "-enm"]:
         print("INPUT ERROR: ", word, " is not one of the accepted input flags. Please see --help for more information.")
         os._exit(1)
 
@@ -1246,6 +1250,24 @@ def refresh_statistics(vtSchemas, refreshAge, ignore2ndMon, sqlman, logman):
     nDSToRefresh_after = int(run_command(sqlman.hdbsql_jAQaxU + " \"SELECT COUNT(*) FROM SYS.DATA_STATISTICS WHERE LAST_REFRESH_TIME < ADD_DAYS(CURRENT_TIMESTAMP, -"+str(refreshAge)+")\"").strip(' '))
     return [nDSs, nDSToRefresh_after - nDSToRefresh_before]
 
+def refresh_data_statistics(refreshAgeDS, sqlman, logman):    #Note: this is the same as refresh_statistics but without the -vl and -vr
+    nDSs = int(run_command(sqlman.hdbsql_jAQaxU + " \"SELECT COUNT(*) FROM SYS.DATA_STATISTICS\"").strip(' '))
+    nDSToRefresh_before = int(run_command(sqlman.hdbsql_jAQaxU + " \"SELECT COUNT(*) FROM SYS.DATA_STATISTICS WHERE LAST_REFRESH_TIME < ADD_DAYS(CURRENT_TIMESTAMP, -"+str(refreshAgeDS)+")\"").strip(' '))
+    if not nDSToRefresh_before:
+        return [nDSs, 0]
+    listOfDSsToRefresh = run_command(sqlman.hdbsql_jAaxU + " \"select DATA_STATISTICS_SCHEMA_NAME, DATA_STATISTICS_NAME FROM SYS.DATA_STATISTICS WHERE LAST_REFRESH_TIME < ADD_DAYS(CURRENT_TIMESTAMP, -"+str(refreshAgeDS)+")\"").splitlines(1)
+    listOfDSsToRefresh = [ds.strip('\n').strip('|').split('|') for ds in listOfDSsToRefresh]    
+    listOfDSsToRefresh = [[elem.strip(' ') for elem in ds] for ds in listOfDSsToRefresh] 
+    for ds in listOfDSsToRefresh: 
+        sql = 'REFRESH STATISTICS \\\"'+ds[0]+'\\\".\\\"'+ds[1]+'\\\"'                 # necessary for tables starting with / and for tables with mixed letter case 
+        errorlog = "\nERROR: The user represented by the key "+sqlman.key+" could not refresh statistics on "+ds[0]+"."+ds[1]+". \nOne possible reason for this is insufficient privilege\n"
+        errorlog += "\nTry, as the user represented by the key "+sqlman.key+" to simply do  SELECT * FROM "+ds[0]+"."+ds[1]+". If that does not work then it could be that the privileges of source system's technical user (used in the SDA setup) is not sufficient.\n"
+        errorlog += "If there is another error (i.e. not insufficient privilege) then please try to execute \n"+sql+"\nin e.g. the SQL editor in SAP HANA Studio. If you get the same error then this has nothing to do with hanacleaner\n"
+        errorlog += "It could be that the respective ODBC driver was not properly set up. Please then follow the SAP HANA Administration Guide."
+        try_execute_sql(sql, errorlog, sqlman, logman, exit_on_fail = False)  
+    nDSToRefresh_after = int(run_command(sqlman.hdbsql_jAQaxU + " \"SELECT COUNT(*) FROM SYS.DATA_STATISTICS WHERE LAST_REFRESH_TIME < ADD_DAYS(CURRENT_TIMESTAMP, -"+str(refreshAgeDS)+")\"").strip(' '))
+    return [nDSs, nDSToRefresh_after - nDSToRefresh_before]
+
 def clean_output(minRetainedOutputDays, sqlman, logman):
     path = logman.path
     nFilesBefore = len([name for name in os.listdir(path) if os.path.isfile(os.path.join(path, name))])
@@ -1368,6 +1390,7 @@ def main():
     vtSchemas = None
     ignore2ndMon = 'true'   #by default we ignore the secondary monitoring virtual tables
     refreshAge = '-1'
+    refreshAgeDS = '-1'
     minRetainedIniDays = "-1" #days
     file_system = "" # by default check all file systems with  df -h
     flag_files = []    #default: no configuration input file
@@ -1479,6 +1502,7 @@ def main():
                     vtSchemas                         = getParameterListFromFile(firstWord, '-vl', flagValue, flag_file, flag_log, vtSchemas)
                     ignore2ndMon                      = getParameterFromFile(firstWord, '-vr', flagValue, flag_file, flag_log, ignore2ndMon)
                     refreshAge                        = getParameterFromFile(firstWord, '-vnr', flagValue, flag_file, flag_log, refreshAge)
+                    refreshAgeDS                      = getParameterFromFile(firstWord, '-dsr', flagValue, flag_file, flag_log, refreshAgeDS)
                     minRetainedIniDays                = getParameterFromFile(firstWord, '-ir', flagValue, flag_file, flag_log, minRetainedIniDays)
                     execute_sql                       = getParameterFromFile(firstWord, '-es', flagValue, flag_file, flag_log, execute_sql)
                     out_sql                           = getParameterFromFile(firstWord, '-os', flagValue, flag_file, flag_log, out_sql)
@@ -1567,6 +1591,7 @@ def main():
     vtSchemas                         = getParameterListFromCommandLine(sys.argv, '-vl', flag_log, vtSchemas)
     ignore2ndMon                      = getParameterFromCommandLine(sys.argv, '-vr', flag_log, ignore2ndMon)
     refreshAge                        = getParameterFromCommandLine(sys.argv, '-vnr', flag_log, refreshAge)
+    refreshAgeDS                      = getParameterFromCommandLine(sys.argv, '-dsr', flag_log, refreshAgeDS)
     minRetainedIniDays                = getParameterFromCommandLine(sys.argv, '-ir', flag_log, minRetainedIniDays)
     execute_sql                       = getParameterFromCommandLine(sys.argv, '-es', flag_log, execute_sql)
     out_sql                           = getParameterFromCommandLine(sys.argv, '-os', flag_log, out_sql)
@@ -1916,6 +1941,11 @@ def main():
         log("INPUT ERROR: -vnr must be an integer. Please see --help for more information.", logman, True)
         os._exit(1)
     refreshAge = int(refreshAge)
+    ### refreshAgeDS, -dsr
+    if not is_integer(refreshAgeDS):
+        log("INPUT ERROR: -dsr must be an integer. Please see --help for more information.", logman, True)
+        os._exit(1)
+    refreshAgeDS = int(refreshAgeDS)
     ### minRetainedIniDays, -ir
     if not is_integer(minRetainedIniDays):
         log("INPUT ERROR: -ir must be an integer. Please see --help for more information.", logman, True)
@@ -2156,11 +2186,18 @@ def main():
                     log("    (Creation of optimization statistics for virtual tables was not done since -vs was false (or not specified))", logman)
                 if refreshAge > 0:
                     [nDSs, nDSsRefreshed] = refresh_statistics(vtSchemas, refreshAge, ignore2ndMon, sqlman, logman)
-                    logmessage = "Refresh of statistics was done for "+str(nDSsRefreshed)+" data statistics (in total there are "+str(nDSs)+" data statistics) (-vnr)" 
+                    logmessage = "Refresh of VT statistics was done for "+str(nDSsRefreshed)+" data statistics (in total there are "+str(nDSs)+" data statistics) (-vnr)" 
                     log(logmessage, logman)
                     emailmessage += logmessage+"\n"
                 else:
                     log("    (Refresh of optimization statistics for virtual tables was not done since -vnr was not more than 0 (or not specified))", logman)
+                if refreshAgeDS > 0:
+                    [nDSs, nDSsRefreshed] = refresh_data_statistics(refreshAgeDS, sqlman, logman)
+                    logmessage = "Refresh of data statistics was done for "+str(nDSsRefreshed)+" data statistics (in total there are "+str(nDSs)+" data statistics) (-dsr)" 
+                    log(logmessage, logman)
+                    emailmessage += logmessage+"\n"
+                else:
+                    log("    (Refresh of data statistics for was not done since -dsr was not more than 0 (or not specified))", logman)
                 if minRetainedIniDays >= 0:
                     nCleaned = clean_ini(minRetainedIniDays, version, revision, mrevision, sqlman, logman)
                     logmessage = str(nCleaned)+" inifile history contents were removed" 
