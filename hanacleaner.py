@@ -61,6 +61,11 @@ def printHelp():
     print("         ----  DUMP FILES  ----                                                                                                    ")
     print(" -dr     retention days for dump files [days], manually created dump files (a.k.a. fullysytem dumps and runtime dumps) that are    ")
     print("         older than this number of days are removed, default: -1 (not used)                                                        ")
+    print("         ----  HDBCONS FILES ----                                                                                                  ")
+    print(" -hr     retention days for lines in the hdbcons trace file [days], unfortunately there is no file rotation for *.hdbcons.trc files")
+    print("         (see SAP Note 3051846), therefore -hr can be used to define retention days for lines in these files. WARNING: this might  ")
+    print("         temporarily require up to twice the file's memory usage! If the file is larger than 10 GB hanacleaner will print a warning")
+    print("         and then ignore that file.          default: -1 (not used)                                                                ")
     print("         ----  ANY FILES  ----                                                                                                     ")
     print(" -gr     retention days for any general file [days], files in the directory specified with -gd and with the file names including   ")
     print("         the word specified with -gw are only saved for this number of days, default: -1 (not used)                                ")
@@ -524,7 +529,7 @@ def get_all_databases(execute_sql, hdbsql_string, dbuserkey, local_host, out_sql
     return all_databases
 
 def checkIfAcceptedFlag(word):
-    if not word in ["-h", "--help", "-d", "--disclaimer", "-ff", "-be", "-bd", "-bb", "-bo", "-br", "-bn", "-tc", "-te", "-tcb", "-tbd", "-tmo", "-tf", "-to", "-td", "-dr", "-gr", "-gd", "-gw", "-gm", "-zb", "-zp", "-zl", "-zo", "-zk", "-ar", "-kr", "-ao", "-ad", "-om", "-oo", "-lr", "-eh", "-eu", "-ur", "-pe", "-fl", "-fo", "-rc", "-ro", "-cc", "-ce", "-cr", "-cs", "-cd", "-cq", "-cu", "-cb", "-cp", "-cm", "-co", "-vs", "-vm", "-vt", "-vn", "-vtt", "-vto", "-vr", "-vnr", "-dsr", "-vl", "-ir", "-es", "-os", "-op", "-of", "-or", "-oc", "-oi", "-fs", "-if", "-df", "-hci", "-so", "-ssl", "-vlh", "-k", "-dbs", "-en", "-et", "-ena", "-enc", "-ens", "-enm"]:
+    if not word in ["-h", "--help", "-d", "--disclaimer", "-ff", "-be", "-bd", "-bb", "-bo", "-br", "-bn", "-tc", "-te", "-tcb", "-tbd", "-tmo", "-tf", "-to", "-td", "-dr", "-hr", "-gr", "-gd", "-gw", "-gm", "-zb", "-zp", "-zl", "-zo", "-zk", "-ar", "-kr", "-ao", "-ad", "-om", "-oo", "-lr", "-eh", "-eu", "-ur", "-pe", "-fl", "-fo", "-rc", "-ro", "-cc", "-ce", "-cr", "-cs", "-cd", "-cq", "-cu", "-cb", "-cp", "-cm", "-co", "-vs", "-vm", "-vt", "-vn", "-vtt", "-vto", "-vr", "-vnr", "-dsr", "-vl", "-ir", "-es", "-os", "-op", "-of", "-or", "-oc", "-oi", "-fs", "-if", "-df", "-hci", "-so", "-ssl", "-vlh", "-k", "-dbs", "-en", "-et", "-ena", "-enc", "-ens", "-enm"]:
         print("INPUT ERROR: ", word, " is not one of the accepted input flags. Please see --help for more information.")
         os._exit(1)
 
@@ -761,7 +766,69 @@ def clean_dumps(retainedDumpDays, local_dbinstance, sqlman, logman):
     nbrDumpsAfter = int(run_command("ls "+path+"fullsysteminfodump* | wc -l").strip(' ')) 
     return nbrDumpsBefore - nbrDumpsAfter
            
+def clean_hdbcons(retainedHDBCONSDays, local_dbinstance, DATABASE, sqlman, logman):
+    path = (cdalias('cdtrace', local_dbinstance)).replace("\n","").replace("'", "") #RHEL put in line endings and strange '
+    if ' ' in path:
+        print("ERROR: The path should not contain a empty space! path = \n", path)
+        os._exit(1)
+    if not DATABASE:
+        log("INPUT ERROR: If -hr is used, either DATABASE must be specified in the key (see the manual of hdbuserstore), or -dbs must be specifed.", logman)
+        log("NOTE: -hr is not supported for none MDC systems", logman, True)
+        os._exit(1)
+    if not DATABASE == 'SYSTEMDB':
+        path += '/DB_'+DATABASE
+    hdbconsfiles = run_command("ls "+path+"/*hdbcons.trc").splitlines(1)
+    oldestDayForKeepingLine = str(datetime.now() + timedelta(days = -int(retainedHDBCONSDays))).split(' ')[0].replace('-', '')
+    nRowsCleaned = 0
+    for hdbconsfile in hdbconsfiles:   # from Pike's rules, there is no reason to read in chunks of the file: http://users.ece.utexas.edu/~adnan/pike.html
+        if os.path.getsize(hdbconsfile)/1000000000.0 > 10.0:
+            print("WARNING, this hdbcons.trc file "+hdbconsfile+" is larger than 10 GB, it will not be processed.")
+        else:
+            nbrRowsBefore = file_len(hdbconsfile)
+            with open(hdbconsfile, 'r') as fin:
+                tempfile = hdbconsfile.replace('.trc','.trc.tmp')
+                with open(tempfile, 'w') as fout:
+                    title_row_done = False
+                    found_date = False
+                    for line in fin:
+                        if found_date or not title_row_done:
+                            fout.write(line)
+                            title_row_done = True
+                        else:
+                            max_date = max([int(date.replace('-', '')) for date in dates_from_hdbcons_line(line)])
+                            if max_date >= int(oldestDayForKeepingLine):
+                                fout.write(line)
+                                found_date = True
+            os.remove(hdbconsfile)
+            os.rename(tempfile, hdbconsfile)
+            nbrRowsAfter = file_len(hdbconsfile)
+            nRowsCleaned += nbrRowsBefore - nbrRowsAfter
+    return nRowsCleaned
 
+def dates_from_hdbcons_line(line):
+    dates = []
+    words = re.split(" +|\t", line)
+    for word in words:
+        if is_date(word):
+            dates.append(word)
+    return dates
+
+def is_date(str):
+    ss = str.split('-')
+    if len(ss) == 3:
+        ss1 = ss[0]
+        ss2 = ss[1].rstrip('0')
+        ss3 = ss[2].rstrip('0')
+        if is_integer(ss1) and is_integer(ss2) and is_integer(ss3):
+            return 1000 < int(ss1) < 3000 and 1 <= int(ss2) <= 12 and 1 <= int(ss3) <= 31
+    return False
+
+def file_len(filename):
+    with open(filename) as f:
+        for i, _ in enumerate(f):
+            pass
+    return i + 1
+    
 def output_removed_trace_files(before, after, logman):
     beforeLines = before.splitlines(1)
     afterLines = after.splitlines(1) 
@@ -1350,6 +1417,7 @@ def main():
     retainedExpensiveTraceContentDays = "-1"
     retainedTraceFilesDays = "-1"
     retainedDumpDays = "-1"
+    retainedHDBCONSDays = "-1"
     retainedAnyFileDays = "-1"
     anyFilePaths = [""]
     anyFileWords = [""]
@@ -1457,6 +1525,7 @@ def main():
                     outputTraces                      = getParameterFromFile(firstWord, '-to', flagValue, flag_file, flag_log, outputTraces)
                     outputRemovedTraces               = getParameterFromFile(firstWord, '-td', flagValue, flag_file, flag_log, outputRemovedTraces)
                     retainedDumpDays                  = getParameterFromFile(firstWord, '-dr', flagValue, flag_file, flag_log, retainedDumpDays)
+                    retainedHDBCONSDays               = getParameterFromFile(firstWord, '-hr', flagValue, flag_file, flag_log, retainedHDBCONSDays)
                     retainedAnyFileDays               = getParameterFromFile(firstWord, '-gr', flagValue, flag_file, flag_log, retainedAnyFileDays)
                     anyFilePaths                      = getParameterListFromFile(firstWord, '-gd', flagValue, flag_file, flag_log, anyFilePaths)
                     anyFilePaths                      = [p.replace('%SID', SID) for p in anyFilePaths]
@@ -1546,6 +1615,7 @@ def main():
     outputTraces                      = getParameterFromCommandLine(sys.argv, '-to', flag_log, outputTraces)
     outputRemovedTraces               = getParameterFromCommandLine(sys.argv, '-td', flag_log, outputRemovedTraces)
     retainedDumpDays                  = getParameterFromCommandLine(sys.argv, '-dr', flag_log, retainedDumpDays)
+    retainedHDBCONSDays               = getParameterFromCommandLine(sys.argv, '-hr', flag_log, retainedHDBCONSDays)
     retainedAnyFileDays               = getParameterFromCommandLine(sys.argv, '-gr', flag_log, retainedAnyFileDays)
     anyFilePaths                      = getParameterListFromCommandLine(sys.argv, '-gd', flag_log, anyFilePaths)
     anyFilePaths                      = [p.replace('%SID', SID) for p in anyFilePaths]
@@ -1756,6 +1826,10 @@ def main():
     ### retainedDumpDays, -dr
     if not is_integer(retainedDumpDays):
         log("INPUT ERROR: -dr must be an integer. Please see --help for more information.", logman, True)
+        os._exit(1)
+    ### retainedHDBCONSDays, -hr
+    if not is_integer(retainedHDBCONSDays):
+        log("INPUT ERROR: -hr must be an integer. Please see --help for more information.", logman, True)
         os._exit(1)
     ### retainedAnyFileDays, -gr
     if not is_integer(retainedAnyFileDays):
@@ -2081,6 +2155,13 @@ def main():
                     emailmessage += logmessage+"\n"
                 else:
                     log("    (Cleaning dumps was not done since -dr was -1 (or not specified))", logman)
+                if retainedHDBCONSDays != "-1":
+                    nRowsCleaned = clean_hdbcons(retainedHDBCONSDays, local_dbinstance, DATABASE, sqlman, logman)
+                    logmessage = "In total "+str(nRowsCleaned)+" rows where cleaned from hdbcons.trc files (-hr)"
+                    log(logmessage, logman)
+                    emailmessage += logmessage+"\n"
+                else:
+                    log("    (Cleaning hdbcons was not done since -hr was -1 (or not specified))", logman)
                 if retainedAnyFileDays != "-1":
                     nCleaned = clean_anyfile(retainedAnyFileDays, anyFilePaths, anyFileWords, anyFileMaxDepth, sqlman, logman)
                     logmessage = str(nCleaned)+" general files were removed (-gr)"
