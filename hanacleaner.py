@@ -789,6 +789,7 @@ def clean_hdbcons(retainedHDBCONSDays, local_dbinstance, DATABASE, sqlman, logma
     oldestDayForKeepingLine = str(datetime.now() + timedelta(days = -int(retainedHDBCONSDays))).split(' ')[0].replace('-', '')
     nRowsCleaned = 0
     for hdbconsfile in hdbconsfiles:   # from Pike's rules, there is no reason to read in chunks of the file: http://users.ece.utexas.edu/~adnan/pike.html
+        hdbconsfile = hdbconsfile.replace("\n", "")
         if os.path.getsize(hdbconsfile)/1000000000.0 > 10.0:
             print("WARNING, this hdbcons.trc file "+hdbconsfile+" is larger than 10 GB, it will not be processed.")
         else:
