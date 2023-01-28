@@ -139,7 +139,7 @@ def printHelp():
     print("         columns with compression type 'DEFAULT' (i.e. no additional compression algorithm in main)                                ")
     print(" -cr     max allowed rows, if a column has more rows --> compress if -cs&-cd, default: -1 (not used) e.g. 10000000                 ")
     print(" -cs     max allowed size [MB], if a column is larger --> compress if -cr&-cd, default: -1 (not used) e.g. 500                     ")
-    print(" -cd     min allowed distinct count [%], if a column has less distinct quota --> compress if -cr&-cs, default -1 (not used) e.g. 5 ") 
+    print(" -cd     min allowed distinct count [%], if a column has less distinct quota --> compress if -cr&-cs, default -1 (not used) e.g. 1 ") 
     print("         3. Both following two flags, -cu and -cq, must be > 0 to control the force compression optimization on tables whose UDIV  ")
     print("         quota is too large, i.e. #UDIVs/(#raw main + #raw delta)                                                                  ")
     print(" -cq     max allowed UDIV quota [%], if the table has larger UDIV quota --> compress if -cu, default: -1 (not used) e.g. 150       ")
