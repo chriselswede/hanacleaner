@@ -804,10 +804,12 @@ def clean_hdbcons(retainedHDBCONSDays, local_dbinstance, DATABASE, sqlman, logma
                             fout.write(line)
                             title_row_done = True
                         else:
-                            max_date = max([int(date.replace('-', '')) for date in dates_from_hdbcons_line(line)])
-                            if max_date >= int(oldestDayForKeepingLine):
-                                fout.write(line)
-                                found_date = True
+                            dates = dates_from_hdbcons_line(line)
+                            if dates:
+                                max_date = max([int(date.replace('-', '')) for date in dates])
+                                if max_date >= int(oldestDayForKeepingLine):
+                                    fout.write(line)
+                                    found_date = True
             os.remove(hdbconsfile)
             os.rename(tempfile, hdbconsfile)
             nbrRowsAfter = file_len(hdbconsfile)
