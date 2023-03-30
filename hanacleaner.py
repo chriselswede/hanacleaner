@@ -38,11 +38,14 @@ def printHelp():
     print(" -tc     retention days for trace files [days], trace files with their latest modification time older than these number of days are")  #internal incident 1870190781
     print("         removed from all hosts, default: -1 (not used)                                                                            ")
     print("         Note: Conceptually -tc is the same as -tf, but -tc is using ALTER SYSTEM CLEAR TRACES ... See SQL Ref. for more info.     ")
+    print("         Note: backup.log and backint.log are not included in -tc, see -tb below                                                   ")
     print("         Note: expensive statements are not included in -tc, see -te below                                                         ")
+    print(" -tb     retention days for backup.log and backint.log [days], same as for -tc, but only for backup.log and backint.log            ") 
+    print("         default: -1 (not used)                                                                                                    ")
     print(" -te     retention days for expensive statement files [days], same as for -tc, but only for expensive statement files, only use    ")  #BUG --> https://jira.tools.sap/browse/HDBKERNEL-7797  
     print("         if you read and understood SAP Note 2819941 (should probably only be used with use_in_memory_tracking = false),           ")
     print("         default: -1 (not used)                                                                                                    ")
-    print(" -tcb    with backup [true/false], the trace files that are removed with the -tc and -te flags are backed up (as a .gz),           ")
+    print(" -tcb    with backup [true/false], the trace files that are removed with the -tc, -tb and -te flags are backed up (as a .gz),      ")
     print("         i.e. ALTER SYSTEM CLEAR TRACES ... WITH BACKUP, see SQL Ref., default: false                                              ")
     print("         NOTE: Some small, unnecessary files, like .stat (SAP Note 2370780), might be deleted by WITH BACKUP --> the numbers might ")
     print("         not seem to fit                                                                                                           ") #internal incident 2180309626
@@ -81,17 +84,6 @@ def printHelp():
     print(" -gw     filename parts for general files to be deleted, a comma separated list with words that files should have in their names   ")
     print('         to be deleted according to -gr (entries pairs with entries in -gd), default "" (not used)                                 ')
     print(" -gm     max depth, maximum recursive folders from folder specified by -gd it will delete files from, default: 1                   ")
-    print("         ----  BACKUP LOGS <H2SPS04 ----                                                                                           ")
-    print(" -zb     backup logs compression size limit [mb], if there are any backup.log or backint.log file (see -zp below) that is bigger   ")
-    print("         than this size limit, then it is compressed and renamed, default: -1 (not used)                                           ")
-    print("         Note: if -tf flag is used the resulting zip file could be removed by it.                                                  ")
-    print("         Note: Don't use this with version HANA 2 SPS04 or later, instead configure size with parameters, see SAP Note 2797078     ")
-    print(" -zp     zip path, specifies the path (and all subdirectories) where to look for the backup.log and backint.log files,             ")
-    print("         default is the directory specified by the alias cdtrace                                                                   ")
-    print(" -zl     zip links [true/false], specifies if symbolic links should be followed searching for backup logs in subdirectories        ")
-    print("         of the directory defined by zp (or by alias cdtrace), default: false                                                      ")
-    print(" -zo     print zipped backup logs, display the backup.log and backint.log that were zipped, default: false                         ")
-    print(" -zk     keep zip, if this is set to false the zip file is deleted (use with care!), default: true                                 ")
     print("         ----  ALERTS  ----                                                                                                        ")
     print(" -ar     min retained alerts days [days], min age (today not included) of retained statistics server alerts, default: -1 (not used)")
     print(" -ao     output alerts [true/false], displays statistics server alerts before and after the cleanup, default: false                ")
@@ -244,10 +236,10 @@ def printHelp():
     print("                                                                                                                                   ")    
     print("                                                                                                                                   ")    
     print("EXAMPLE (trace files, statistics server alerts and backup catalog entries, i.e. not the backups themselves, older than 42 days     ")
-    print("         are deleted and backup logs bigger than 50 mb are compressed and renamed and logsegments a removed if more than 20        ")
+    print("         are deleted and backup logs older than 42 days are removed and logsegments a removed if more than 20                      ")
     print("         free once exist for a service):                                                                                           ")
     print("                                                                                                                                   ")
-    print("  > python hanacleaner.py -tc 42 -tf 42 -ar 42 -bd 42 -zb 50 -lr 20 -eh 2 -eu 42                                                   ")
+    print("  > python hanacleaner.py -tc 42 -tb 42 -tf 42 -ar 42 -bd 42 -lr 20 -eh 2 -eu 42                                                   ")
     print("                                                                                                                                   ")
     print("                                                                                                                                   ")
     print("EXAMPLE (reads a configuration file, one flag will overwrite, i.e. retention time for the alerts will be 200 days instead of 42):  ")
@@ -534,7 +526,7 @@ def get_all_databases(execute_sql, hdbsql_string, dbuserkey, local_host, out_sql
     return all_databases
 
 def checkIfAcceptedFlag(word):
-    if not word in ["-h", "--help", "-d", "--disclaimer", "-ff", "-be", "-bd", "-bb", "-bo", "-br", "-bn", "-tc", "-te", "-tcb", "-tbd", "-tmo", "-tf", "-ti", "-to", "-td", "-dr", "-hr", "-gr", "-gd", "-gw", "-gm", "-zb", "-zp", "-zl", "-zo", "-zk", "-ar", "-kr", "-ao", "-ad", "-om", "-oo", "-lr", "-eh", "-eu", "-ur", "-pe", "-fl", "-fo", "-rc", "-ro", "-cc", "-ce", "-cr", "-cs", "-cd", "-cq", "-cu", "-cb", "-cp", "-cm", "-co", "-vs", "-vm", "-vt", "-vn", "-vtt", "-vto", "-vr", "-vnr", "-dsr", "-vl", "-ir", "-es", "-os", "-op", "-of", "-or", "-oc", "-oi", "-fs", "-if", "-df", "-hci", "-so", "-ssl", "-vlh", "-k", "-dbs", "-en", "-et", "-ena", "-enc", "-ens", "-enm"]:
+    if not word in ["-h", "--help", "-d", "--disclaimer", "-ff", "-be", "-bd", "-bb", "-bo", "-br", "-bn", "-tc", "-tb", "-te", "-tcb", "-tbd", "-tmo", "-tf", "-ti", "-to", "-td", "-dr", "-hr", "-gr", "-gd", "-gw", "-gm", "-zb", "-zp", "-zl", "-zo", "-zk", "-ar", "-kr", "-ao", "-ad", "-om", "-oo", "-lr", "-eh", "-eu", "-ur", "-pe", "-fl", "-fo", "-rc", "-ro", "-cc", "-ce", "-cr", "-cs", "-cd", "-cq", "-cu", "-cb", "-cp", "-cm", "-co", "-vs", "-vm", "-vt", "-vn", "-vtt", "-vto", "-vr", "-vnr", "-dsr", "-vl", "-ir", "-es", "-os", "-op", "-of", "-or", "-oc", "-oi", "-fs", "-if", "-df", "-hci", "-so", "-ssl", "-vlh", "-k", "-dbs", "-en", "-et", "-ena", "-enc", "-ens", "-enm"]:
         print("INPUT ERROR: ", word, " is not one of the accepted input flags. Please see --help for more information.")
         os._exit(1)
 
@@ -673,7 +665,7 @@ def clear_traces(trace_list, oldestRetainedTraceContentDate, backupTraceContent,
     errorlog += "If there is another error (i.e. not insufficient privilege) then please try to execute \n"+sql+"\nin e.g. the SQL editor in SAP HANA Studio. If you get the same error then this has nothing to do with hanacleaner"
     try_execute_sql(sql, errorlog, sqlman, logman)    
      
-def clean_trace_files(retainedTraceContentDays, retainedExpensiveTraceContentDays, backupTraceContent, backupTraceDirectory, timeOutForMove, retainedTraceFilesDays, ignoreTraceFiles, outputTraces, outputRemovedTraces, SID, DATABASE, local_dbinstance, hosts, sqlman, logman):
+def clean_trace_files(retainedTraceContentDays, retainedBacklogDays, retainedExpensiveTraceContentDays, backupTraceContent, backupTraceDirectory, timeOutForMove, retainedTraceFilesDays, ignoreTraceFiles, outputTraces, outputRemovedTraces, SID, DATABASE, local_dbinstance, hosts, sqlman, logman):
     nbrTracesBefore = int(run_command(sqlman.hdbsql_jAQaxU + " \"SELECT COUNT(*) FROM sys.m_tracefiles\"").strip(' '))
     if nbrTracesBefore == 0:
         return 0  
@@ -682,11 +674,13 @@ def clean_trace_files(retainedTraceContentDays, retainedExpensiveTraceContentDay
         log("\nBEFORE:\n"+beforeTraces, logman)
     if outputRemovedTraces:
         beforeTraceFiles = run_command(sqlman.hdbsql_jAaxU + " \"select HOST, FILE_NAME from sys.m_tracefiles order by file_mtime desc\"")
-    if retainedTraceContentDays != "-1" or retainedExpensiveTraceContentDays != "-1":
+    if retainedTraceContentDays != "-1" or retainedBacklogDays != "-1" or retainedExpensiveTraceContentDays != "-1":
         oldestRetainedTraceContentDate = datetime.now() + timedelta(days = -int(retainedTraceContentDays))
         timeStampsForClearTraces = [datetime.now().strftime("%Y%m%d%H%M%S"), (datetime.now() + timedelta(seconds=1)).strftime("%Y%m%d%H%M%S"), (datetime.now() + timedelta(seconds=2)).strftime("%Y%m%d%H%M%S"), (datetime.now() + timedelta(seconds=3)).strftime("%Y%m%d%H%M%S")]
         if retainedTraceContentDays != "-1":
-            clear_traces("'ALERT','CLIENT','CRASHDUMP','EMERGENCYDUMP','RTEDUMP','UNLOAD','ROWSTOREREORG','SQLTRACE','*'", oldestRetainedTraceContentDate, backupTraceContent, sqlman, logman)  
+            clear_traces("'ALERT','CLIENT','CRASHDUMP','EMERGENCYDUMP','RTEDUMP','UNLOAD','ROWSTOREREORG','SQLTRACE','*'", oldestRetainedTraceContentDate, backupTraceContent, sqlman, logman)
+        if retainedBacklogDays != "-1":   # SAP Note 2797078
+            clear_traces("'BACKUP'", oldestRetainedTraceContentDate, backupTraceContent, sqlman, logman)  
         if retainedExpensiveTraceContentDays != "-1":   # internal incident 1980358670, SAP Note 2819941 shows a BUG that should be fixed! "expected behaviour" = bull s###
             clear_traces("'EXPENSIVESTATEMENT'", oldestRetainedTraceContentDate, backupTraceContent, sqlman, logman)  
         if backupTraceDirectory:
@@ -732,7 +726,7 @@ def clean_trace_files(retainedTraceContentDays, retainedExpensiveTraceContentDay
         sql = "select FILE_NAME from sys.m_tracefiles where file_size != '-1' and file_mtime < '"+oldestRetainedTraceFilesDate.strftime('%Y-%m-%d')+" "+datetime.now().strftime("%H:%M:%S")+"'"  # file_size = -1 --> folder, cannot be removed
         filesToBeRemoved = run_command(sqlman.hdbsql_jAQaxU + " \"" + sql + "\"").splitlines(1)
         filesToBeRemoved = [file.strip('\n').strip(' ') for file in filesToBeRemoved if file != '\n'] 
-        # Ignore files with names that breaks the ALTER command, or kill.sap according to SAP Note 2349144, and backup.log and backint.log since they are taken care of by -zb, see SAP Note 2431472 about hdbdaemon, 
+        # Ignore files with names that breaks the ALTER command, or kill.sap according to SAP Note 2349144, and backup.log and backint.log since they are taken care of by -tb, see SAP Note 2431472 about hdbdaemon, 
         # we do not want to delete any .sem or .status file, and we do not want to delete any links, e.g. .sap<SID>_HDB<inst>, and we dont want to delete the log for the webdispatcher, and we are not allowed to delete Local Secure Store files, or SUSEs Python Hook
         ignoreList = [" ", ",", "'", "kill.sap", "backup.log", "backint.log", "hdbdaemon.status", "sapstart.sem", "sapstart.log", ".sap"+SID+"_HDB"+local_dbinstance, "http_fe.log", "lss/", "nameserver_suschksrv.trc"]
         filesToBeRemoved = [file for file in filesToBeRemoved if not any(x in file for x in ignoreList)]
@@ -964,49 +958,12 @@ def max_filesystem_usage_in_percent(file_system, ignore_filesystems, logman):
         maxPercentage = max(used_percentages)
         log(str(maxPercentage)+"%", logman) 
     return maxPercentage
-
-def find_all(name, path, zipLinks):
-    result = []
-    if zipLinks:
-        pathes = os.walk(path, followlinks=True)
-    else:
-        pathes = os.walk(path)
-    for root, dirs, files in pathes:
-        if name in files:
-            result.append(os.path.join(root, name))
-    return result
     
 def getNbrRows(schema, table, sqlman):
     return int(run_command(sqlman.hdbsql_jAQaxU + " \"SELECT COUNT(*) FROM "+schema+"."+table+" \"").strip(' '))
 
 def getAdapterName(schema, table, sqlman):
     return run_command(sqlman.hdbsql_jAQaxU + " \"SELECT R.ADAPTER_NAME FROM SYS.REMOTE_SOURCES R JOIN SYS.VIRTUAL_TABLES V ON R.REMOTE_SOURCE_NAME = V.REMOTE_SOURCE_NAME WHERE V.SCHEMA_NAME = '"+schema+"' and TABLE_NAME = '"+table+"'\"").strip(' ')
-
-def zipBackupLogs(zipBackupLogsSizeLimit, zipBackupPath, zipLinks, zipOut, zipKeep, sqlman, logman):
-    backup_log_pathes = find_all("backup.log", zipBackupPath, zipLinks)
-    backint_log_pathes = find_all("backint.log", zipBackupPath, zipLinks)
-    log_pathes = backup_log_pathes + backint_log_pathes
-    nZipped = 0
-    for aLog in log_pathes:
-        if os.path.getsize(aLog)/1000000.0 > zipBackupLogsSizeLimit:
-            newname = (aLog.strip(".log")+"_compressed_"+datetime.now().strftime("%Y-%m-%d %H:%M:%S")+".tar.gz").replace(":","-").replace(" ","_").replace("//", "/")
-            tempname = newname.replace(".tar.gz", ".log")
-            if sqlman.log:
-                log("mv "+aLog+" "+tempname, logman)
-                log("tar -czPf "+newname+" "+tempname, logman)      # P to avoid annoying error message
-                log("rm "+tempname, logman)
-                if not zipKeep:
-                    log("rm "+newname, logman)
-            if sqlman.execute:
-                dummyout = run_command("mv "+aLog+" "+tempname)
-                dummyout = run_command("tar -czPf "+newname+" "+tempname)      # P to avoid annoying error message
-                dummyout = run_command("rm "+tempname)
-                if zipOut:
-                    log(aLog+" was compressed to "+newname+" and then removed", logman)
-                nZipped += 1
-                if not zipKeep:
-                    dummyout = run_command("rm "+newname)
-    return nZipped
     
 def cdalias(alias, local_dbinstance):   # alias e.g. cdtrace, cdhdb, ...
     su_cmd = ''
@@ -1408,10 +1365,10 @@ def main():
     outputTraces = "false"
     outputRemovedTraces = "false"
     zipBackupLogsSizeLimit = "-1" #mb
-    zipBackupPath = '' #default will be set to cdtrace as soon as we get local_instance
-    zipLinks = "false"
-    zipOut = "false"
-    zipKeep = "true"
+    zipBackupPath = ''   #to be removed!
+    zipLinks = "false"   #to be removed!
+    zipOut = "false"     #to be removed!
+    zipKeep = "true"     #to be removed!
     dbuserkeys = ["SYSTEMKEY"] # This/these KEY(S) has to be maintained in hdbuserstore  
                                # so that   hdbuserstore LIST    gives e.g. 
                                # KEY SYSTEMKEY
@@ -1425,6 +1382,7 @@ def main():
     senders_email = None
     mail_server = None
     retainedTraceContentDays = "-1"
+    retainedBacklogDays = "-1"
     retainedExpensiveTraceContentDays = "-1"
     retainedTraceFilesDays = "-1"
     ignoreTraceFiles = [""]
@@ -1529,6 +1487,7 @@ def main():
                     outputDeletedCatalog              = getParameterFromFile(firstWord, '-br', flagValue, flag_file, flag_log, outputDeletedCatalog)
                     outputNDeletedLBEntries           = getParameterFromFile(firstWord, '-bn', flagValue, flag_file, flag_log, outputNDeletedLBEntries)
                     retainedTraceContentDays          = getParameterFromFile(firstWord, '-tc', flagValue, flag_file, flag_log, retainedTraceContentDays)
+                    retainedBacklogDays               = getParameterFromFile(firstWord, '-tb', flagValue, flag_file, flag_log, retainedBacklogDays)
                     retainedExpensiveTraceContentDays = getParameterFromFile(firstWord, '-te', flagValue, flag_file, flag_log, retainedExpensiveTraceContentDays)
                     backupTraceContent                = getParameterFromFile(firstWord, '-tcb', flagValue, flag_file, flag_log, backupTraceContent)
                     backupTraceDirectory              = getParameterFromFile(firstWord, '-tbd', flagValue, flag_file, flag_log, backupTraceDirectory)
@@ -1620,6 +1579,7 @@ def main():
     outputDeletedCatalog              = getParameterFromCommandLine(sys.argv, '-br', flag_log, outputDeletedCatalog)
     outputNDeletedLBEntries           = getParameterFromCommandLine(sys.argv, '-bn', flag_log, outputNDeletedLBEntries)
     retainedTraceContentDays          = getParameterFromCommandLine(sys.argv, '-tc', flag_log, retainedTraceContentDays)
+    retainedBacklogDays               = getParameterFromCommandLine(sys.argv, '-tb', flag_log, retainedBacklogDays)
     retainedExpensiveTraceContentDays = getParameterFromCommandLine(sys.argv, '-te', flag_log, retainedExpensiveTraceContentDays)
     backupTraceContent                = getParameterFromCommandLine(sys.argv, '-tcb', flag_log, backupTraceContent)
     backupTraceDirectory              = getParameterFromCommandLine(sys.argv, '-tbd', flag_log, backupTraceDirectory)
@@ -1811,14 +1771,18 @@ def main():
     if not is_integer(retainedTraceContentDays):
         log("INPUT ERROR: -tc must be an integer. Please see --help for more information.", logman)
         os._exit(1)
+    ### retainedBacklogDays, -tb
+    if not is_integer(retainedBacklogDays):
+        log("INPUT ERROR: -tb must be an integer. Please see --help for more information.", logman)
+        os._exit(1)
     ### retainedExpensiveTraceContentDays, -te
     if not is_integer(retainedExpensiveTraceContentDays):
         log("INPUT ERROR: -te must be an integer. Please see --help for more information.", logman)
         os._exit(1)
     ### backupTraceContent, -tcb
     backupTraceContent = checkAndConvertBooleanFlag(backupTraceContent, "-tcb", logman)
-    if backupTraceContent and (retainedTraceContentDays == "-1" and retainedExpensiveTraceContentDays == "-1"):
-        log("INPUT ERROR: -tcb is specified although -tc and -te are not. This makes no sense. Please see --help for more information.", logman, True)
+    if backupTraceContent and (retainedTraceContentDays == "-1" and retainedBacklogDays == "-1" and retainedExpensiveTraceContentDays == "-1"):
+        log("INPUT ERROR: -tcb is specified although -tc, -tb and -te are not. This makes no sense. Please see --help for more information.", logman, True)
         os._exit(1)
     ### backupTraceDirectory, -tbd
     if backupTraceDirectory and not backupTraceContent:
@@ -1834,8 +1798,8 @@ def main():
         log("INPUT ERROR: -tf must be an integer. Please see --help for more information.", logman, True)
         os._exit(1)
     if outputRemovedTraces:
-        if retainedTraceContentDays == "-1" and retainedExpensiveTraceContentDays == "-1" and retainedTraceFilesDays == "-1":
-            log("INPUT ERROR: -td is true allthough -tc, -te and -tf are all -1. This makes no sense. Please see --help for more information.", logman, True)
+        if retainedTraceContentDays == "-1" and retainedBacklogDays == "-1" and retainedExpensiveTraceContentDays == "-1" and retainedTraceFilesDays == "-1":
+            log("INPUT ERROR: -td is true allthough -tc, -tb, -te and -tf are all -1. This makes no sense. Please see --help for more information.", logman, True)
             os._exit(1)
     ### ignoreTraceFiles, -ti
     # nothing to check
@@ -1877,17 +1841,24 @@ def main():
         os._exit(1)       
     zipBackupLogsSizeLimit = int(zipBackupLogsSizeLimit)
     if zipBackupLogsSizeLimit != -1:
-        ### zipBackupPath, -zp
-        if zipBackupPath: #default has been put to '' and will be put to cdtrace as soon as we get local_instance
-            if not os.path.exists(zipBackupPath):
-                log("INPUT ERROR: The path provided with -zp does not exist. Please see --help for more information.\n"+zipBackupPath, logman, True)
-                os._exit(1)
+        log("INPUT WARNING: -zb is not in use anymore, it will be ignored. See -tb instead. Please see --help for more information.", logman, True)
+    ################################ TO DO: Delete All -z* flags  ########################
+    ### zipBackupPath, -zp
+    if zipBackupPath: #default has been put to '' and will be put to cdtrace as soon as we get local_instance
+        log("INPUT WARNING: -zp is not in use anymore, it will be ignored. See -tb instead. Please see --help for more information.", logman, True)
     ### zipLinks, -zl
     zipLinks = checkAndConvertBooleanFlag(zipLinks, "-zl", logman)
+    if zipLinks:
+        log("INPUT WARNING: -zl is not in use anymore, it will be ignored. See -tb instead. Please see --help for more information.", logman, True)
     ### zipOut, -zo
     zipOut = checkAndConvertBooleanFlag(zipOut, "-zo", logman)
+    if zipOut:
+        log("INPUT WARNING: -zo is not in use anymore, it will be ignored. See -tb instead. Please see --help for more information.", logman, True)
     ### zipKeep, -zk
     zipKeep = checkAndConvertBooleanFlag(zipKeep, "-zk", logman)
+    if not zipKeep:
+        log("INPUT WARNING: -zk is not in use anymore, it will be ignored. See -tb instead. Please see --help for more information.", logman, True)
+    ######################################################################################
     ### minRetainedAlertDays, -ar
     if not is_integer(minRetainedAlertDays):
         log("INPUT ERROR: -ar must be an integer. Please see --help for more information.", logman, True)
@@ -2141,8 +2112,8 @@ def main():
                     os._exit(1)
                 ##### HANA VERSION COMPATABILITY ######    
                 [version, revision, mrevision] = hana_version_revision_maintenancerevision(sqlman, logman)
-                if (retainedTraceContentDays != "-1" or retainedExpensiveTraceContentDays != "-1") and (version < 2 and revision < 120):
-                    log("VERSION ERROR: -tc and -te are not supported for SAP HANA rev. < 120. (The UNTIL option is new with SPS12.)", logman, True)
+                if (retainedTraceContentDays != "-1" or retainedBacklogDays != "-1" or retainedExpensiveTraceContentDays != "-1") and (version < 2 and revision < 120):
+                    log("VERSION ERROR: -tc, tb and -te are not supported for SAP HANA rev. < 120. (The UNTIL option is new with SPS12.)", logman, True)
                     os._exit(1)       
                 if zipBackupLogsSizeLimit != -1 and (version >= 2 and revision >= 40):
                     log("VERSION WARNING: -zb is not supported for SAP HANA 2 rev. >= 40. Instead configure size with parameters, see SAP Note 2797078.", logman)
@@ -2157,13 +2128,13 @@ def main():
                     emailmessage += logmessage+"\n"
                 else:
                     log("    (Cleaning of the backup catalog was not done since -be and -bd were both negative (or not specified))", logman)
-                if retainedTraceContentDays != "-1" or retainedExpensiveTraceContentDays != "-1" or retainedTraceFilesDays != "-1":
-                    nCleaned = clean_trace_files(retainedTraceContentDays, retainedExpensiveTraceContentDays, backupTraceContent, backupTraceDirectory, timeOutForMove, retainedTraceFilesDays, ignoreTraceFiles, outputTraces, outputRemovedTraces, SID, DATABASE, local_dbinstance, hosts(sqlman), sqlman, logman)
-                    logmessage = str(nCleaned)+" trace files were removed (-tc and -tf)"
+                if retainedTraceContentDays != "-1" or retainedBacklogDays != "-1" or retainedExpensiveTraceContentDays != "-1" or retainedTraceFilesDays != "-1":
+                    nCleaned = clean_trace_files(retainedTraceContentDays, retainedBacklogDays, retainedExpensiveTraceContentDays, backupTraceContent, backupTraceDirectory, timeOutForMove, retainedTraceFilesDays, ignoreTraceFiles, outputTraces, outputRemovedTraces, SID, DATABASE, local_dbinstance, hosts(sqlman), sqlman, logman)
+                    logmessage = str(nCleaned)+" trace files were removed (-tc, -tb, -te and -tf)"
                     log(logmessage, logman)
                     emailmessage += logmessage+"\n"
                 else:
-                    log("    (Cleaning traces was not done since -tc and -tf were both -1 (or not specified))", logman)
+                    log("    (Cleaning traces was not done since -tc, -tb, -te and -tf were all -1 (or not specified))", logman)
                 if retainedDumpDays != "-1":
                     nCleaned = clean_dumps(retainedDumpDays, local_dbinstance, sqlman, logman)
                     logmessage = str(nCleaned)+" fullsysteminfodump zip files (that can contain both fullsystem dumps and runtime dumps) were removed (-dr)"
@@ -2185,15 +2156,6 @@ def main():
                     emailmessage += logmessage+"\n"
                 else:
                     log("    (Cleaning of general files was not done since -gr was -1 (or not specified))", logman)
-                if zipBackupLogsSizeLimit >= 0:
-                    if not zipBackupPath:
-                        zipBackupPath = cdalias('cdtrace', local_dbinstance)
-                    nZipped = zipBackupLogs(zipBackupLogsSizeLimit, zipBackupPath, zipLinks, zipOut, zipKeep, sqlman, logman)
-                    logmessage = str(nZipped)+" backup logs were compressed (-zb)"
-                    log(logmessage, logman)
-                    emailmessage += logmessage+"\n"
-                else:
-                    log("    (Compression of the backup logs was not done since -zb was negative (or not specified) or this is not more supported for your HANA Version)", logman)
                 if minRetainedAlertDays >= 0:
                     nCleaned = clean_alerts(minRetainedAlertDays, outputAlerts, outputDeletedAlerts, sqlman, logman)
                     logmessage = str(nCleaned)+" alerts were removed (-ar)"
