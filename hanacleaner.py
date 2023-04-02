@@ -680,7 +680,7 @@ def clean_trace_files(retainedTraceContentDays, retainedBacklogDays, retainedExp
         if retainedTraceContentDays != "-1":
             clear_traces("'ALERT','CLIENT','CRASHDUMP','EMERGENCYDUMP','RTEDUMP','UNLOAD','ROWSTOREREORG','SQLTRACE','*'", oldestRetainedTraceContentDate, backupTraceContent, sqlman, logman)
         if retainedBacklogDays != "-1":   # SAP Note 2797078
-            clear_traces("'BACKUP'", oldestRetainedTraceContentDate, backupTraceContent, sqlman, logman)  
+            clear_traces("'BACKUP','BACKINT'", oldestRetainedTraceContentDate, backupTraceContent, sqlman, logman)  
         if retainedExpensiveTraceContentDays != "-1":   # internal incident 1980358670, SAP Note 2819941 shows a BUG that should be fixed! "expected behaviour" = bull s###
             clear_traces("'EXPENSIVESTATEMENT'", oldestRetainedTraceContentDate, backupTraceContent, sqlman, logman)  
         if backupTraceDirectory:
