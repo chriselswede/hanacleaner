@@ -41,7 +41,7 @@ def printHelp():
     print("         Note: backup.log and backint.log are not included in -tc, see -tb below                                                   ")
     print("         Note: expensive statements are not included in -tc, see -te below                                                         ")
     print(" -tb     retention days for backup.log and backint.log [days], same as for -tc, but only for backup.log and backint.log            ") 
-    print("         default: -1 (not used)                                                                                                    ")
+    print("         default: -1 (not used)          Note: See also SAP Note 2797078 regarding file rotation.                                  ")
     print(" -te     retention days for expensive statement files [days], same as for -tc, but only for expensive statement files, only use    ")  #BUG --> https://jira.tools.sap/browse/HDBKERNEL-7797  
     print("         if you read and understood SAP Note 2819941 (should probably only be used with use_in_memory_tracking = false),           ")
     print("         default: -1 (not used)                                                                                                    ")
@@ -99,6 +99,8 @@ def printHelp():
     print("         ---- LOG SEGMENTS  ----                                                                                                   ")
     print(" -lr     max free logsegments per service [number logsegments], if more free logsegments exist for a service the statement         ")
     print("         ALTER SYSTEM RECLAIM LOG is executed, default: -1 (not used)                                                              ")
+    print("         Note: A too small value could cause overhead and contention due to RECLAIM LOG executions.                                ")
+    print("               The setting  -lr 250  has been found to be a good compromise.                                                       ")
     print("         ---- EVENTS  ----                                                                                                         ")
     print(" -eh     min retained days for handled events [day], minimum retained days for the handled events, handled events that are older   ")
     print("         are removed by first being acknowledged and then deleted, this is done for all hosts, default: -1 (not used)              ")
