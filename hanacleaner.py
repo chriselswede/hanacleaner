@@ -75,9 +75,10 @@ def printHelp():
     print("         temporarily require up to twice the file's memory usage! If the file is larger than 10 GB hanacleaner will print a warning")
     print("         and then ignore that file.          default: -1 (not used)                                                                ")
     print("         ----  ANY FILES  ----                                                                                                     ")
-    print(" -gr     retention days for any general file [days], files in the directory specified with -gd and with the file names including   ")
-    print("         the word specified with -gw are only saved for this number of days, default: -1 (not used)                                ")
-    print("         Note: -gd and -gw can also be same length lists with a commas as delimiter                                                ")
+    print(" -gr     retention days for any general file [days], this is a a comma separated list with retention days, files in the directories")
+    print("         specified with -gd and with the file names including the word specified with -gw are only saved for this number of days,  ")
+    print("         default: "" (not used)                                                                                                    ")
+    print("         Note: -gr must be a list with the same length as -gd and -gw                                                              ")
     print(" -gd     directories for general files to be deleted, a comma separated list with full paths of directories with files to be       ")
     print('         deleted according to -gr (entries pairs with entries in -gw), default "" (not used)                                       ')
     print("         Note: if you include %SID, it will automatically be replaced with the actually SID of your system                         ")
@@ -1317,22 +1318,25 @@ def clean_output(minRetainedOutputDays, sqlman, logman):
     
 def clean_anyfile(retainedAnyFileDays, anyFilePaths, anyFileWords, anyFileMaxDepth, sqlman, logman):
     removedFiles = 0
-    if str(retainedAnyFileDays) == "0": #then dont use -mtime, dont work
-        retainedAnyFileDaysString = ""
-    else:
-        retainedAnyFileDaysString = "-mtime +"+str(retainedAnyFileDays)
+    path_level = 0
+    retainedAnyFileDaysString = []
     for path, word in zip(anyFilePaths, anyFileWords):
         nFilesBefore = int(run_command("find "+path+" -maxdepth "+str(anyFileMaxDepth)+" -type f | wc -l").strip(' '))
+        if str(retainedAnyFileDays[path_level]) == "0": #then dont use -mtime, dont work
+            retainedAnyFileDaysString.append("")
+        else:
+            retainedAnyFileDaysString.append("-mtime +"+str(retainedAnyFileDays[path_level]))
         with open(os.devnull, 'w') as devnull:  #not needed anymore.. build in inside run_command, but only needed for python 2.7 ... remove this! 
             if sqlman.log:
-                log("find "+path+" -maxdepth "+str(anyFileMaxDepth)+" -name '*"+word+"*' -type f "+retainedAnyFileDaysString+" -delete", logman)
+                log("find "+path+" -maxdepth "+str(anyFileMaxDepth)+" -name '*"+word+"*' -type f "+retainedAnyFileDaysString[path_level]+" -delete", logman)
             if sqlman.execute:
                 try:
-                    dummyout = run_command("find "+path+" -maxdepth "+str(anyFileMaxDepth)+" -name '*"+word+"*' -type f "+retainedAnyFileDaysString+" -delete")   #this might be a problem ... from https://docs.python.org/3/library/subprocess.html#subprocess.getoutput : 
+                    dummyout = run_command("find "+path+" -maxdepth "+str(anyFileMaxDepth)+" -name '*"+word+"*' -type f "+retainedAnyFileDaysString[path_level]+" -delete")   #this might be a problem ... from https://docs.python.org/3/library/subprocess.html#subprocess.getoutput : 
                     #The stdout and stderr arguments may not be supplied at the same time as capture_output. If you wish to capture and combine both streams into one, use stdout=PIPE and stderr=STDOUT instead of capture_output.
                 except:
                     pass   #File not  found, but no need to warn about that
         nFilesAfter = int(run_command("find "+path+" -maxdepth "+str(anyFileMaxDepth)+" -type f | wc -l").strip(' '))
+        path_level += 1
         removedFiles += nFilesBefore - nFilesAfter
     return removedFiles  
     
@@ -1390,7 +1394,7 @@ def main():
     ignoreTraceFiles = [""]
     retainedDumpDays = "-1"
     retainedHDBCONSDays = "-1"
-    retainedAnyFileDays = "-1"
+    retainedAnyFileDays = [""]
     anyFilePaths = [""]
     anyFileWords = [""]
     anyFileMaxDepth = "1"
@@ -1500,7 +1504,7 @@ def main():
                     outputRemovedTraces               = getParameterFromFile(firstWord, '-td', flagValue, flag_file, flag_log, outputRemovedTraces)
                     retainedDumpDays                  = getParameterFromFile(firstWord, '-dr', flagValue, flag_file, flag_log, retainedDumpDays)
                     retainedHDBCONSDays               = getParameterFromFile(firstWord, '-hr', flagValue, flag_file, flag_log, retainedHDBCONSDays)
-                    retainedAnyFileDays               = getParameterFromFile(firstWord, '-gr', flagValue, flag_file, flag_log, retainedAnyFileDays)
+                    retainedAnyFileDays               = getParameterListFromFile(firstWord, '-gr', flagValue, flag_file, flag_log, retainedAnyFileDays)
                     anyFilePaths                      = getParameterListFromFile(firstWord, '-gd', flagValue, flag_file, flag_log, anyFilePaths)
                     anyFilePaths                      = [p.replace('%SID', SID) for p in anyFilePaths]
                     anyFileWords                      = getParameterListFromFile(firstWord, '-gw', flagValue, flag_file, flag_log, anyFileWords)
@@ -1592,7 +1596,7 @@ def main():
     outputRemovedTraces               = getParameterFromCommandLine(sys.argv, '-td', flag_log, outputRemovedTraces)
     retainedDumpDays                  = getParameterFromCommandLine(sys.argv, '-dr', flag_log, retainedDumpDays)
     retainedHDBCONSDays               = getParameterFromCommandLine(sys.argv, '-hr', flag_log, retainedHDBCONSDays)
-    retainedAnyFileDays               = getParameterFromCommandLine(sys.argv, '-gr', flag_log, retainedAnyFileDays)
+    retainedAnyFileDays               = getParameterListFromCommandLine(sys.argv, '-gr', flag_log, retainedAnyFileDays)
     anyFilePaths                      = getParameterListFromCommandLine(sys.argv, '-gd', flag_log, anyFilePaths)
     anyFilePaths                      = [p.replace('%SID', SID) for p in anyFilePaths]
     anyFileWords                      = getParameterListFromCommandLine(sys.argv, '-gw', flag_log, anyFileWords)
@@ -1814,10 +1818,14 @@ def main():
         log("INPUT ERROR: -hr must be an integer. Please see --help for more information.", logman, True)
         os._exit(1)
     ### retainedAnyFileDays, -gr
-    if not is_integer(retainedAnyFileDays):
-        log("INPUT ERROR: -gr must be an integer. Please see --help for more information.", logman, True)
-        os._exit(1)
+    if retainedAnyFileDays[0]:
+        if not all(is_integer(rDays) for rDays in retainedAnyFileDays):
+            log("INPUT ERROR: -gr must be a list of integers. Please see --help for more information.", logman, True)
+            os._exit(1)
     ### anyFilePaths, -gd
+    if not len(anyFilePaths) == len(retainedAnyFileDays):
+        log("INPUT ERROR: -gd must be a list of the same length as -gr. Please see --help for more information.", logman, True)
+        os._exit(1)
     if anyFilePaths[0]:
         if not all(os.path.isdir(path) for path in anyFilePaths):
             log("INPUT ERROR: -gd must be a directory or a list of directories. Please see --help for more information.", logman, True)
