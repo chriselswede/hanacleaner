@@ -219,7 +219,8 @@ def printHelp():
     print(" -k      DB user key, this one has to be maintained in hdbuserstore, i.e. as <sid>adm do                                           ")               
     print("         > hdbuserstore SET <DB USER KEY> <ENV> <USERNAME> <PASSWORD>                     , default: SYSTEMKEY                     ")
     print("         It could also be a list of comma seperated userkeys (useful in MDC environments), e.g.: SYSTEMKEY,TENANT1KEY,TENANT2KEY   ")
-    print("         Note: It is not possible to use underscore in the user key, e.g. HANA_HOUSEKEEPING is NOT possible                        ")
+    print("         Note: hdbuserstore has some restrictions in allowed passwords. Always test with                                           ")
+    print("                               hdbsql -U <key> -j -A \"select * from dummy\"                                                       ")
     print(" -dbs    DB key, this can be a list of databases accessed from the system defined by -k (-k can only be one key if -dbs is used)   ")               
     print("         Note: Users with same name and password have to be maintained in all databases   , default: ''  (not used)                ")
     print("         It is possible to specify  -dbs all  to execute hanacleaner on all active databases, then -k must point to SYSTEMDB       ")
@@ -1834,7 +1835,7 @@ def main():
     if not len(anyFileWords) == len(anyFilePaths):
         log("INPUT ERROR: -gw must be a list of the same length as -gd. Please see --help for more information.", logman, True)
         os._exit(1)
-    if len(anyFileWords) == 1 and anyFileWords[0] == "" and not retainedAnyFileDays == "-1":
+    if len(anyFileWords) == 1 and anyFileWords[0] == "" and not retainedAnyFileDays == [""]:
         log("INPUT ERROR: -gw must be specified if -gr is. Please see --help for more information.", logman, True)
         os._exit(1)
     ### anyFileMaxDepth, -gm
@@ -2159,7 +2160,7 @@ def main():
                     emailmessage += logmessage+"\n"
                 else:
                     log("    (Cleaning hdbcons was not done since -hr was -1 (or not specified))", logman)
-                if retainedAnyFileDays != "-1":
+                if retainedAnyFileDays != [""]:
                     nCleaned = clean_anyfile(retainedAnyFileDays, anyFilePaths, anyFileWords, anyFileMaxDepth, sqlman, logman)
                     logmessage = str(nCleaned)+" general files were removed (-gr)"
                     log(logmessage, logman)
