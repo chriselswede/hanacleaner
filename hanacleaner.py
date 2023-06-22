@@ -2121,171 +2121,171 @@ def main():
                 errorlog = "USER ERROR: The user represented by the key "+dbuserkey+" cannot connect to the system. Make sure this user is properly saved in hdbuserstore."
                 [dummy_out, succeeded] = try_execute_sql(sql, errorlog, sqlman, logman, True, True) # always check key, even if -es true
                 dummy_out = dummy_out.strip("\n").strip("|").strip(" ") 
-                if sqlman.execute and (dummy_out != 'X' or not succeeded):
-                    log("USER ERROR: The user represented by the key "+dbuserkey+" cannot connect to the system. Make sure this user is properly saved in hdbuserstore.", logman, True)
-                    os._exit(1)
-                ##### HANA VERSION COMPATABILITY ######    
-                [version, revision, mrevision] = hana_version_revision_maintenancerevision(sqlman, logman)
-                if (retainedTraceContentDays != "-1" or retainedBacklogDays != "-1" or retainedExpensiveTraceContentDays != "-1") and (version < 2 and revision < 120):
-                    log("VERSION ERROR: -tc, tb and -te are not supported for SAP HANA rev. < 120. (The UNTIL option is new with SPS12.)", logman, True)
-                    os._exit(1)       
-                if zipBackupLogsSizeLimit != -1 and (version >= 2 and revision >= 40):
-                    log("VERSION WARNING: -zb is not supported for SAP HANA 2 rev. >= 40. Instead configure size with parameters, see SAP Note 2797078.", logman)
-                    zipBackupLogsSizeLimit = -1     
-                ###### START ALL HOUSE KEEPING TASKS ########
-                if minRetainedBackups >= 0 or minRetainedDays >= 0:
-                    [nCleanedData, nCleanedLog] = clean_backup_catalog(minRetainedBackups, minRetainedDays, deleteBackups, outputCatalog, outputDeletedCatalog, outputNDeletedLBEntries, sqlman, logman)
-                    logmessage = str(nCleanedData)+" data backup entries and "+str(nCleanedLog)+" log backup entries were removed from the backup catalog (-be and -bd)"
-                    if not outputNDeletedLBEntries:
-                        logmessage = str(nCleanedData)+" data backup entries were removed from the backup catalog (number removed log backups is unknown since -bn = false)"
-                    log(logmessage, logman)
-                    emailmessage += logmessage+"\n"
+                if dummy_out != 'X' or not succeeded:
+                    log("USER ERROR: The user represented by the key "+dbuserkey+" cannot connect to the system. Make sure this user is properly saved in hdbuserstore. Will now continue with the other keys (if there are any)", logman, True)
                 else:
-                    log("    (Cleaning of the backup catalog was not done since -be and -bd were both negative (or not specified))", logman)
-                if retainedTraceContentDays != "-1" or retainedBacklogDays != "-1" or retainedExpensiveTraceContentDays != "-1" or retainedTraceFilesDays != "-1":
-                    nCleaned = clean_trace_files(retainedTraceContentDays, retainedBacklogDays, retainedExpensiveTraceContentDays, backupTraceContent, backupTraceDirectory, timeOutForMove, retainedTraceFilesDays, ignoreTraceFiles, outputTraces, outputRemovedTraces, SID, DATABASE, local_dbinstance, hosts(sqlman), sqlman, logman)
-                    logmessage = str(nCleaned)+" trace files were removed (-tc, -tb, -te and -tf)"
-                    log(logmessage, logman)
-                    emailmessage += logmessage+"\n"
-                else:
-                    log("    (Cleaning traces was not done since -tc, -tb, -te and -tf were all -1 (or not specified))", logman)
-                if retainedDumpDays != "-1":
-                    nCleaned = clean_dumps(retainedDumpDays, local_dbinstance, sqlman, logman)
-                    logmessage = str(nCleaned)+" fullsysteminfodump zip files (that can contain both fullsystem dumps and runtime dumps) were removed (-dr)"
-                    log(logmessage, logman)
-                    emailmessage += logmessage+"\n"
-                else:
-                    log("    (Cleaning dumps was not done since -dr was -1 (or not specified))", logman)
-                if retainedHDBCONSDays != "-1":
-                    nRowsCleaned = clean_hdbcons(retainedHDBCONSDays, local_dbinstance, DATABASE, sqlman, logman)
-                    logmessage = "In total "+str(nRowsCleaned)+" rows where cleaned from hdbcons.trc files (-hr)"
-                    log(logmessage, logman)
-                    emailmessage += logmessage+"\n"
-                else:
-                    log("    (Cleaning hdbcons was not done since -hr was -1 (or not specified))", logman)
-                if retainedAnyFileDays != [""]:
-                    nCleaned = clean_anyfile(retainedAnyFileDays, anyFilePaths, anyFileWords, anyFileMaxDepth, sqlman, logman)
-                    logmessage = str(nCleaned)+" general files were removed (-gr)"
-                    log(logmessage, logman)
-                    emailmessage += logmessage+"\n"
-                else:
-                    log("    (Cleaning of general files was not done since -gr was -1 (or not specified))", logman)
-                if minRetainedAlertDays >= 0:
-                    nCleaned = clean_alerts(minRetainedAlertDays, outputAlerts, outputDeletedAlerts, sqlman, logman)
-                    logmessage = str(nCleaned)+" alerts were removed (-ar)"
-                    log(logmessage, logman)
-                    emailmessage += logmessage+"\n"
-                else:
-                    log("    (Cleaning of the alerts was not done since -ar was negative (or not specified))", logman)
-                if minRetainedObjLockDays >= 0:
-                    nCleaned = clean_objlock(minRetainedObjLockDays, sqlman, logman)
-                    logmessage = str(nCleaned)+" object locks entries with unknown object names were removed (-kr)"
-                    log(logmessage, logman)
-                    emailmessage += logmessage+"\n"
-                else:
-                    log("    (Cleaning of unknown object locks entries was not done since -kr was negative (or not specified))", logman)
-                if objHistMaxSize >= 0:
-                    memoryCleaned = clean_objhist(objHistMaxSize, outputObjHist, sqlman, logman)
-                    logmessage = str(memoryCleaned)+" mb were cleaned from object history (-om)"
-                    log(logmessage, logman)
-                    emailmessage += logmessage+"\n"
-                else:
-                    log("    (Cleaning of the object history was not done since -om was negative (or not specified))", logman)
-                if maxFreeLogsegments >= 0:
-                    nReclaimed = reclaim_logsegments(maxFreeLogsegments, sqlman, logman)
-                    logmessage = str(nReclaimed)+" log segments were reclaimed (-lr)"
-                    log(logmessage, logman)
-                    emailmessage += logmessage+"\n"
-                else:
-                    log("    (Reclaim of free logsements was not done since -lr was negative (or not specified))", logman)
-                if minRetainedDaysForHandledEvents >= 0 or minRetainedDaysForEvents >= 0:
-                    nEventsCleaned = clean_events(minRetainedDaysForHandledEvents, minRetainedDaysForEvents, sqlman, logman)
-                    logmessage = str(nEventsCleaned[1])+" events were cleaned, "+str(nEventsCleaned[0])+" of those were handled. There are "+str(nEventsCleaned[2])+" events left, "+str(nEventsCleaned[3])+" of those are handled. (-eh and -eu)" 
-                    log(logmessage, logman)
-                    emailmessage += logmessage+"\n"
-                else:
-                    log("    (Cleaning of events was not done since -eh and -eu were negative (or not specified))", logman)
-                if retainedAuditLogDays != "-1":
-                    nCleaned = clean_audit_logs(retainedAuditLogDays, sqlman, logman)
-                    logmessage = str(nCleaned)+" entries in the audit log table were removed (-ur)"
-                    log(logmessage, logman)
-                    emailmessage += logmessage+"\n"
-                else:
-                    log("    (Cleaning audit logs was not done since -ur was -1 (or not specified))", logman)  
-                if pendingEmailsDays != "-1":
-                    nCleaned = clean_pending_emails(pendingEmailsDays, sqlman, logman)
-                    logmessage = str(nCleaned)+" pending statistics server email notifications were removed (-pe)"
-                    log(logmessage, logman)
-                    emailmessage += logmessage+"\n"
-                else:
-                    log("    (Cleaning of pending emails was not done since -pe was -1 (or not specified))", logman)  
-                if fragmentationLimit >= 0:
-                    defragmentedPerPort = defragment(fragmentationLimit, outputFragmentation, sqlman, logman)
-                    if defragmentedPerPort:
-                        for port in defragmentedPerPort:
-                            if port[2] > 0:
-                                logmessage = "For Host "+str(port[0])+" and Port "+str(port[1])+" defragmentation changed by "+str(port[2])+" % (-fl)"
-                                log(logmessage, logman)
-                                emailmessage += logmessage+"\n"
-                            else:
-                                log("Defragmentation was tried for Host "+str(port[0])+" and Port "+str(port[1])+" but it changed by "+str(port[2])+" %", logman)
-                    else:
-                        log("Defragmentation was not done since there was not enough fragmentation for any service", logman)
-                else:
-                    log("    (Defragmentation was not done since -fl was negative (or not specified))", logman)
-                if rcContainers:
-                    nReclaimedContainers = reclaim_rs_containers(outputRcContainers, sqlman, logman)
-                    logmessage = nReclaimedContainers[1]+" row store containers were reclaimed from "+nReclaimedContainers[0]+" row store tables (-rc)"
-                    log(logmessage, logman)
-                    emailmessage += logmessage+"\n"
-                else:
-                    log("    (Reclaim of row store containers was not done since -rc was negative (or not specified))", logman)
-                if all(c > -1 for c in [maxRawComp, maxEstComp]) or all(c > -1 for c in [maxRowComp, maxMemComp, minDistComp]) or all(c > -1 for c in [maxQuotaComp, maxUDIVComp]) or maxBLOCKComp > -1:
-                    nTablesForcedCompression = force_compression(maxRawComp, maxEstComp, maxRowComp, maxMemComp, minDistComp, maxQuotaComp, maxUDIVComp, maxBLOCKComp, partComp, mergeBeforeComp, version, revision, mrevision, outComp, sqlman, logman)
-                    if nTablesForcedCompression[1]:
-                        log("Tried re-optimize compression on "+str(nTablesForcedCompression[0])+" tables and failed on "+str(nTablesForcedCompression[1])+" (probably due to insufficient privileges)", logman)
-                    else:
-                        logmessage = str(nTablesForcedCompression[0])+" column store tables were compression re-optimized"
+                    ##### HANA VERSION COMPATABILITY ######    
+                    [version, revision, mrevision] = hana_version_revision_maintenancerevision(sqlman, logman)
+                    if (retainedTraceContentDays != "-1" or retainedBacklogDays != "-1" or retainedExpensiveTraceContentDays != "-1") and (version < 2 and revision < 120):
+                        log("VERSION ERROR: -tc, tb and -te are not supported for SAP HANA rev. < 120. (The UNTIL option is new with SPS12.)", logman, True)
+                        os._exit(1)       
+                    if zipBackupLogsSizeLimit != -1 and (version >= 2 and revision >= 40):
+                        log("VERSION WARNING: -zb is not supported for SAP HANA 2 rev. >= 40. Instead configure size with parameters, see SAP Note 2797078.", logman)
+                        zipBackupLogsSizeLimit = -1     
+                    ###### START ALL HOUSE KEEPING TASKS ########
+                    if minRetainedBackups >= 0 or minRetainedDays >= 0:
+                        [nCleanedData, nCleanedLog] = clean_backup_catalog(minRetainedBackups, minRetainedDays, deleteBackups, outputCatalog, outputDeletedCatalog, outputNDeletedLBEntries, sqlman, logman)
+                        logmessage = str(nCleanedData)+" data backup entries and "+str(nCleanedLog)+" log backup entries were removed from the backup catalog (-be and -bd)"
+                        if not outputNDeletedLBEntries:
+                            logmessage = str(nCleanedData)+" data backup entries were removed from the backup catalog (number removed log backups is unknown since -bn = false)"
                         log(logmessage, logman)
                         emailmessage += logmessage+"\n"
-                else:
-                    log("    (Compression re-optimization was not done since at least one flag in each of the three compression flag groups was negative (or not specified))", logman)
-                if createVTStat:
-                    [nVTs, nVTsOptimized] = create_vt_statistics(vtSchemas, maxColumnsOfVT, defaultVTStatType, maxRowsForDefaultVT, largeVTStatType, otherDBVTStatType, ignore2ndMon, sqlman, logman)
-                    logmessage = "Optimization statistics was created for "+str(nVTsOptimized)+" virtual tables (in total there are "+str(nVTs)+" virtual tables) (-vs)" 
-                    log(logmessage, logman)
-                    emailmessage += logmessage+"\n"
-                else:
-                    log("    (Creation of optimization statistics for virtual tables was not done since -vs was false (or not specified))", logman)
-                if refreshAge > 0:
-                    [nDSs, nDSsRefreshed] = refresh_statistics(vtSchemas, refreshAge, ignore2ndMon, sqlman, logman)
-                    logmessage = "Refresh of VT statistics was done for "+str(nDSsRefreshed)+" data statistics (in total there are "+str(nDSs)+" data statistics) (-vnr)" 
-                    log(logmessage, logman)
-                    emailmessage += logmessage+"\n"
-                else:
-                    log("    (Refresh of optimization statistics for virtual tables was not done since -vnr was not more than 0 (or not specified))", logman)
-                if refreshAgeDS > 0:
-                    [nDSs, nDSsRefreshed] = refresh_data_statistics(refreshAgeDS, sqlman, logman)
-                    logmessage = "Refresh of data statistics was done for "+str(nDSsRefreshed)+" data statistics (in total there are "+str(nDSs)+" data statistics) (-dsr)" 
-                    log(logmessage, logman)
-                    emailmessage += logmessage+"\n"
-                else:
-                    log("    (Refresh of data statistics for was not done since -dsr was not more than 0 (or not specified))", logman)
-                if minRetainedIniDays >= 0:
-                    nCleaned = clean_ini(minRetainedIniDays, version, revision, mrevision, sqlman, logman)
-                    logmessage = str(nCleaned)+" inifile history contents were removed" 
-                    log(logmessage, logman)
-                    emailmessage += logmessage+"\n"
-                if minRetainedOutputDays >= 0:
-                    nCleaned = clean_output(minRetainedOutputDays, sqlman, logman)
-                    logmessage = str(nCleaned)+" hanacleaner daily log files were removed (-or)"
-                    log(logmessage, logman)
-                    emailmessage += logmessage+"\n"
-                else:
-                    log("    (Cleaning of the hanacleaner logs was not done since -or was negative (or not specified))", logman)  
-                ##### SEND EMAIL SUMMARY #####
-                if sendEmailSummary:
-                    sendEmail(emailmessage, logman)   
+                    else:
+                        log("    (Cleaning of the backup catalog was not done since -be and -bd were both negative (or not specified))", logman)
+                    if retainedTraceContentDays != "-1" or retainedBacklogDays != "-1" or retainedExpensiveTraceContentDays != "-1" or retainedTraceFilesDays != "-1":
+                        nCleaned = clean_trace_files(retainedTraceContentDays, retainedBacklogDays, retainedExpensiveTraceContentDays, backupTraceContent, backupTraceDirectory, timeOutForMove, retainedTraceFilesDays, ignoreTraceFiles, outputTraces, outputRemovedTraces, SID, DATABASE, local_dbinstance, hosts(sqlman), sqlman, logman)
+                        logmessage = str(nCleaned)+" trace files were removed (-tc, -tb, -te and -tf)"
+                        log(logmessage, logman)
+                        emailmessage += logmessage+"\n"
+                    else:
+                        log("    (Cleaning traces was not done since -tc, -tb, -te and -tf were all -1 (or not specified))", logman)
+                    if retainedDumpDays != "-1":
+                        nCleaned = clean_dumps(retainedDumpDays, local_dbinstance, sqlman, logman)
+                        logmessage = str(nCleaned)+" fullsysteminfodump zip files (that can contain both fullsystem dumps and runtime dumps) were removed (-dr)"
+                        log(logmessage, logman)
+                        emailmessage += logmessage+"\n"
+                    else:
+                        log("    (Cleaning dumps was not done since -dr was -1 (or not specified))", logman)
+                    if retainedHDBCONSDays != "-1":
+                        nRowsCleaned = clean_hdbcons(retainedHDBCONSDays, local_dbinstance, DATABASE, sqlman, logman)
+                        logmessage = "In total "+str(nRowsCleaned)+" rows where cleaned from hdbcons.trc files (-hr)"
+                        log(logmessage, logman)
+                        emailmessage += logmessage+"\n"
+                    else:
+                        log("    (Cleaning hdbcons was not done since -hr was -1 (or not specified))", logman)
+                    if retainedAnyFileDays != [""]:
+                        nCleaned = clean_anyfile(retainedAnyFileDays, anyFilePaths, anyFileWords, anyFileMaxDepth, sqlman, logman)
+                        logmessage = str(nCleaned)+" general files were removed (-gr)"
+                        log(logmessage, logman)
+                        emailmessage += logmessage+"\n"
+                    else:
+                        log("    (Cleaning of general files was not done since -gr was -1 (or not specified))", logman)
+                    if minRetainedAlertDays >= 0:
+                        nCleaned = clean_alerts(minRetainedAlertDays, outputAlerts, outputDeletedAlerts, sqlman, logman)
+                        logmessage = str(nCleaned)+" alerts were removed (-ar)"
+                        log(logmessage, logman)
+                        emailmessage += logmessage+"\n"
+                    else:
+                        log("    (Cleaning of the alerts was not done since -ar was negative (or not specified))", logman)
+                    if minRetainedObjLockDays >= 0:
+                        nCleaned = clean_objlock(minRetainedObjLockDays, sqlman, logman)
+                        logmessage = str(nCleaned)+" object locks entries with unknown object names were removed (-kr)"
+                        log(logmessage, logman)
+                        emailmessage += logmessage+"\n"
+                    else:
+                        log("    (Cleaning of unknown object locks entries was not done since -kr was negative (or not specified))", logman)
+                    if objHistMaxSize >= 0:
+                        memoryCleaned = clean_objhist(objHistMaxSize, outputObjHist, sqlman, logman)
+                        logmessage = str(memoryCleaned)+" mb were cleaned from object history (-om)"
+                        log(logmessage, logman)
+                        emailmessage += logmessage+"\n"
+                    else:
+                        log("    (Cleaning of the object history was not done since -om was negative (or not specified))", logman)
+                    if maxFreeLogsegments >= 0:
+                        nReclaimed = reclaim_logsegments(maxFreeLogsegments, sqlman, logman)
+                        logmessage = str(nReclaimed)+" log segments were reclaimed (-lr)"
+                        log(logmessage, logman)
+                        emailmessage += logmessage+"\n"
+                    else:
+                        log("    (Reclaim of free logsements was not done since -lr was negative (or not specified))", logman)
+                    if minRetainedDaysForHandledEvents >= 0 or minRetainedDaysForEvents >= 0:
+                        nEventsCleaned = clean_events(minRetainedDaysForHandledEvents, minRetainedDaysForEvents, sqlman, logman)
+                        logmessage = str(nEventsCleaned[1])+" events were cleaned, "+str(nEventsCleaned[0])+" of those were handled. There are "+str(nEventsCleaned[2])+" events left, "+str(nEventsCleaned[3])+" of those are handled. (-eh and -eu)" 
+                        log(logmessage, logman)
+                        emailmessage += logmessage+"\n"
+                    else:
+                        log("    (Cleaning of events was not done since -eh and -eu were negative (or not specified))", logman)
+                    if retainedAuditLogDays != "-1":
+                        nCleaned = clean_audit_logs(retainedAuditLogDays, sqlman, logman)
+                        logmessage = str(nCleaned)+" entries in the audit log table were removed (-ur)"
+                        log(logmessage, logman)
+                        emailmessage += logmessage+"\n"
+                    else:
+                        log("    (Cleaning audit logs was not done since -ur was -1 (or not specified))", logman)  
+                    if pendingEmailsDays != "-1":
+                        nCleaned = clean_pending_emails(pendingEmailsDays, sqlman, logman)
+                        logmessage = str(nCleaned)+" pending statistics server email notifications were removed (-pe)"
+                        log(logmessage, logman)
+                        emailmessage += logmessage+"\n"
+                    else:
+                        log("    (Cleaning of pending emails was not done since -pe was -1 (or not specified))", logman)  
+                    if fragmentationLimit >= 0:
+                        defragmentedPerPort = defragment(fragmentationLimit, outputFragmentation, sqlman, logman)
+                        if defragmentedPerPort:
+                            for port in defragmentedPerPort:
+                                if port[2] > 0:
+                                    logmessage = "For Host "+str(port[0])+" and Port "+str(port[1])+" defragmentation changed by "+str(port[2])+" % (-fl)"
+                                    log(logmessage, logman)
+                                    emailmessage += logmessage+"\n"
+                                else:
+                                    log("Defragmentation was tried for Host "+str(port[0])+" and Port "+str(port[1])+" but it changed by "+str(port[2])+" %", logman)
+                        else:
+                            log("Defragmentation was not done since there was not enough fragmentation for any service", logman)
+                    else:
+                        log("    (Defragmentation was not done since -fl was negative (or not specified))", logman)
+                    if rcContainers:
+                        nReclaimedContainers = reclaim_rs_containers(outputRcContainers, sqlman, logman)
+                        logmessage = nReclaimedContainers[1]+" row store containers were reclaimed from "+nReclaimedContainers[0]+" row store tables (-rc)"
+                        log(logmessage, logman)
+                        emailmessage += logmessage+"\n"
+                    else:
+                        log("    (Reclaim of row store containers was not done since -rc was negative (or not specified))", logman)
+                    if all(c > -1 for c in [maxRawComp, maxEstComp]) or all(c > -1 for c in [maxRowComp, maxMemComp, minDistComp]) or all(c > -1 for c in [maxQuotaComp, maxUDIVComp]) or maxBLOCKComp > -1:
+                        nTablesForcedCompression = force_compression(maxRawComp, maxEstComp, maxRowComp, maxMemComp, minDistComp, maxQuotaComp, maxUDIVComp, maxBLOCKComp, partComp, mergeBeforeComp, version, revision, mrevision, outComp, sqlman, logman)
+                        if nTablesForcedCompression[1]:
+                            log("Tried re-optimize compression on "+str(nTablesForcedCompression[0])+" tables and failed on "+str(nTablesForcedCompression[1])+" (probably due to insufficient privileges)", logman)
+                        else:
+                            logmessage = str(nTablesForcedCompression[0])+" column store tables were compression re-optimized"
+                            log(logmessage, logman)
+                            emailmessage += logmessage+"\n"
+                    else:
+                        log("    (Compression re-optimization was not done since at least one flag in each of the three compression flag groups was negative (or not specified))", logman)
+                    if createVTStat:
+                        [nVTs, nVTsOptimized] = create_vt_statistics(vtSchemas, maxColumnsOfVT, defaultVTStatType, maxRowsForDefaultVT, largeVTStatType, otherDBVTStatType, ignore2ndMon, sqlman, logman)
+                        logmessage = "Optimization statistics was created for "+str(nVTsOptimized)+" virtual tables (in total there are "+str(nVTs)+" virtual tables) (-vs)" 
+                        log(logmessage, logman)
+                        emailmessage += logmessage+"\n"
+                    else:
+                        log("    (Creation of optimization statistics for virtual tables was not done since -vs was false (or not specified))", logman)
+                    if refreshAge > 0:
+                        [nDSs, nDSsRefreshed] = refresh_statistics(vtSchemas, refreshAge, ignore2ndMon, sqlman, logman)
+                        logmessage = "Refresh of VT statistics was done for "+str(nDSsRefreshed)+" data statistics (in total there are "+str(nDSs)+" data statistics) (-vnr)" 
+                        log(logmessage, logman)
+                        emailmessage += logmessage+"\n"
+                    else:
+                        log("    (Refresh of optimization statistics for virtual tables was not done since -vnr was not more than 0 (or not specified))", logman)
+                    if refreshAgeDS > 0:
+                        [nDSs, nDSsRefreshed] = refresh_data_statistics(refreshAgeDS, sqlman, logman)
+                        logmessage = "Refresh of data statistics was done for "+str(nDSsRefreshed)+" data statistics (in total there are "+str(nDSs)+" data statistics) (-dsr)" 
+                        log(logmessage, logman)
+                        emailmessage += logmessage+"\n"
+                    else:
+                        log("    (Refresh of data statistics for was not done since -dsr was not more than 0 (or not specified))", logman)
+                    if minRetainedIniDays >= 0:
+                        nCleaned = clean_ini(minRetainedIniDays, version, revision, mrevision, sqlman, logman)
+                        logmessage = str(nCleaned)+" inifile history contents were removed" 
+                        log(logmessage, logman)
+                        emailmessage += logmessage+"\n"
+                    if minRetainedOutputDays >= 0:
+                        nCleaned = clean_output(minRetainedOutputDays, sqlman, logman)
+                        logmessage = str(nCleaned)+" hanacleaner daily log files were removed (-or)"
+                        log(logmessage, logman)
+                        emailmessage += logmessage+"\n"
+                    else:
+                        log("    (Cleaning of the hanacleaner logs was not done since -or was negative (or not specified))", logman)  
+                    ##### SEND EMAIL SUMMARY #####
+                    if sendEmailSummary:
+                        sendEmail(emailmessage, logman)   
             ################ DISABLE TIMEOUT ALARM #############
             signal.alarm(0)
 
