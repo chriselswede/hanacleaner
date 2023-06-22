@@ -55,9 +55,12 @@ def printHelp():
     print("         flag, is finished. This can take some seconds. If it is not finished before the time out, specified by the -tmo flag,     ")
     print("         the move will not happen, default: 30 seconds                                                                             ")
     print(" -tf     retention days for trace files [days], trace files, in all hosts, that are older than this number of days are removed     ")
-    print("         (except for the currently opened trace files), only files with these extensions are taken into account:                   ")
+    print("         (except for the currently opened trace files)                                                                             ")
+    print("         Only files with these strings in the filenames are taken into account (please let me know if I should add some):          ")
     print("               .trc, .log, .stat, .py, .tpt, .gz, .zip, .old, .xml, .txt, .docs, .cfg, .dmp, .cockpit, .xs                         ")
-    print("         there is a list of files that are ignored  (to add your own files to this ignore list, see -ti)                           ")
+    print("               .trc, .log, .stat, .py, .tpt, .gz, .zip, .old, .xml, .txt, .docs, .cfg, .dmp, .cockpit, .xs,                        ")
+    print("               dev_icm_sec, wdisp_icm_log, .output                                                                                 ")
+    print("         There is a list of files that are ignored  (to add your own files to this ignore list, see -ti)                           ")
     print("               kill.sap, backup.log, backint.log, hdbdaemon.status, sapstart.sem, sapstart.log, .sap<SID>_HDB<dbinstance>,         ")
     print("               http_fe.log, lss/, nameserver_suschksrv.trc                                                                         ")
     print("         default: -1 (not used)                                                                                                    ")
@@ -736,7 +739,7 @@ def clean_trace_files(retainedTraceContentDays, retainedBacklogDays, retainedExp
         filesToBeRemoved = [file for file in filesToBeRemoved if not any(x in file for x in ignoreList)]
         filesToBeRemoved = [file for file in filesToBeRemoved if not any(fnmatch.fnmatch(file, x) for x in ignoreTraceFiles)]
         # Make sure we only delete files with known extensions (we dont delete .sem or .status files). Added two files without extensions that we want to delete. To delete files like dev_icm_sec one have to run HANACleaner as dev_icm_sec from SYSTEMDB, otherwise they are not in m_tracefiles
-        filesToBeRemoved = [file for file in filesToBeRemoved if any(x in file for x in [".trc", ".log", ".stat", ".py", ".tpt", ".gz", ".zip", ".old", ".xml", ".txt", ".docs", ".cfg", ".dmp", ".cockpit", ".xs", "dev_icm_sec", "wdisp_icm_log"])] 
+        filesToBeRemoved = [file for file in filesToBeRemoved if any(x in file for x in [".trc", ".log", ".stat", ".py", ".tpt", ".gz", ".zip", ".old", ".xml", ".txt", ".docs", ".cfg", ".dmp", ".cockpit", ".xs", "dev_icm_sec", "wdisp_icm_log", ".output"])] 
         if filesToBeRemoved:  # otherwise no file to remove
             filesToBeRemoved = [filesToBeRemoved[i:i + 100] for i in range(0, len(filesToBeRemoved), 100)]  #make sure we do not send too long statement, it could cause an error
             for files in filesToBeRemoved:
