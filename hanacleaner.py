@@ -1480,7 +1480,7 @@ def main():
     flag_files = getParameterListFromCommandLine(sys.argv, '-ff', flag_log, flag_files)    
     flag_files = [ff.replace('%SID', SID) for ff in flag_files]
     if flag_files:
-        print("Make sure the configuration file only contains ascii characters!")
+        print("Will now read the configuration file (in case there is a non-ascii character it will break).")
 
     ############ CONFIGURATION FILE ###################
     for flag_file in flag_files:
