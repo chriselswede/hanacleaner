@@ -204,7 +204,8 @@ def printHelp():
     print("                                         > 0: time it waits before it checks if DB is online and primary again                     ")
     print("                                              Note: For the > 0 option it might be necessary to use cron with the lock option      ")
     print("                                                    See the HANASitter & CRON slide in the HANASitter pdf                          ")
-    print("         Note: for now, -oi is not supported for a server running HANA Cockpit                                                     ")
+    print(" -hc     hana cockpit [true/false], set true if this hana is the hana running hana cockpit (i.e. only a SystemDB), and if you      ")
+    print("         have set -oi >= 0                                                                                default: false           ")
     print("         ---- SERVER FULL CHECK ----                                                                                               ")
     print(" -fs     file system, path to server to check for disk full situation before hanacleaner runs, default: blank, i.e. df -h is used  ")
     print('                      Could also be used to specify a couple of servers with e.g. -fs "|grep sapmnt"                               ')
@@ -467,11 +468,11 @@ def sql_for_backup_id_for_min_retained_days(minRetainedDays):
 def sql_for_backup_id_for_min_retained_backups(minRetainedBackups):
     return "SELECT ENTRY_ID, SYS_START_TIME from (SELECT ENTRY_ID, SYS_START_TIME, ROW_NUMBER() OVER(ORDER BY SYS_START_TIME desc) as NUM from sys.m_backup_catalog where (ENTRY_TYPE_NAME = 'complete data backup' or ENTRY_TYPE_NAME = 'data snapshot') and STATE_NAME = 'successful' order by SYS_START_TIME desc) as B where B.NUM = "+str(minRetainedBackups)
 
-def online_and_master_tests(online_test_interval, local_dbinstance, local_host, logman):
+def online_and_master_tests(online_test_interval, local_dbinstance, local_host, cockpit, logman):
     if online_test_interval < 0: #then dont test
         return True
     else:
-        if is_online(local_dbinstance, logman) and not is_secondary(logman): 
+        if is_online(cockpit, local_dbinstance, logman) and not is_secondary(logman): 
             return is_master(local_dbinstance, local_host, logman)  #HANACleaner should only run on the Master Node
         else:
             return False
@@ -493,16 +494,22 @@ def is_master(local_dbinstance, local_host, logman):
     log(printout, logman)
     return result
 
-def is_online(dbinstance, logman): #Checks if all services are GREEN and if there exists an indexserver (if not this is a Stand-By) 
+def is_online(cockpit, dbinstance, logman): #Checks if all services are GREEN and if there exists an indexserver (if not this is a Stand-By) 
     process = subprocess.Popen(['sapcontrol', '-nr', dbinstance, '-function', 'GetProcessList'], stdout=subprocess.PIPE)
     out, err = process.communicate()
     out = out.decode()
     number_services = out.count(" HDB ") + out.count(" Local Secure Store")   
     number_running_services = out.count("GREEN")
-    number_indexservers = int(out.count("hdbindexserver")) # if not indexserver this is Stand-By
+    if cockpit:
+        number_importantservers = int(out.count("hdbnameserver"))
+    else:
+        number_importantservers = int(out.count("hdbindexserver")) # if not indexserver this is Stand-By
     test_ok = (str(err) == "None")
-    result = (number_running_services == number_services) and (number_indexservers != 0)
-    printout = "Online Check      , "+datetime.now().strftime("%Y-%m-%d %H:%M:%S")+"    ,     -            , "+str(test_ok)+"         , "+str(result)+"       , # index services: "+str(number_indexservers)+", # running services: "+str(number_running_services)+" out of "+str(number_services)
+    result = (number_running_services == number_services) and (number_importantservers != 0)
+    if cockpit:
+        printout = "Online Check      , "+datetime.now().strftime("%Y-%m-%d %H:%M:%S")+"    ,     -            , "+str(test_ok)+"         , "+str(result)+"       , # name services: "+str(number_importantservers)+", # running services: "+str(number_running_services)+" out of "+str(number_services)
+    else:
+        printout = "Online Check      , "+datetime.now().strftime("%Y-%m-%d %H:%M:%S")+"    ,     -            , "+str(test_ok)+"         , "+str(result)+"       , # index services: "+str(number_importantservers)+", # running services: "+str(number_running_services)+" out of "+str(number_services)
     log(printout, logman)
     return result
     
@@ -533,7 +540,7 @@ def get_all_databases(execute_sql, hdbsql_string, dbuserkey, local_host, out_sql
     return all_databases
 
 def checkIfAcceptedFlag(word):
-    if not word in ["-h", "--help", "-d", "--disclaimer", "-ff", "-be", "-bd", "-bb", "-bo", "-br", "-bn", "-tc", "-tb", "-te", "-tcb", "-tbd", "-tmo", "-tf", "-ti", "-to", "-td", "-dr", "-hr", "-gr", "-gd", "-gw", "-gm", "-zb", "-zp", "-zl", "-zo", "-zk", "-ar", "-kr", "-ao", "-ad", "-om", "-oo", "-lr", "-eh", "-eu", "-ur", "-pe", "-fl", "-fo", "-rc", "-ro", "-cc", "-ce", "-cr", "-cs", "-cd", "-cq", "-cu", "-cb", "-cp", "-cm", "-co", "-vs", "-vm", "-vt", "-vn", "-vtt", "-vto", "-vr", "-vnr", "-dsr", "-vl", "-ir", "-es", "-os", "-op", "-of", "-or", "-oc", "-oi", "-fs", "-if", "-df", "-hci", "-so", "-ssl", "-vlh", "-k", "-dbs", "-en", "-et", "-ena", "-enc", "-ens", "-enm"]:
+    if not word in ["-h", "--help", "-d", "--disclaimer", "-ff", "-be", "-bd", "-bb", "-bo", "-br", "-bn", "-tc", "-tb", "-te", "-tcb", "-tbd", "-tmo", "-tf", "-ti", "-to", "-td", "-dr", "-hr", "-gr", "-gd", "-gw", "-gm", "-zb", "-zp", "-zl", "-zo", "-zk", "-ar", "-kr", "-ao", "-ad", "-om", "-oo", "-lr", "-eh", "-eu", "-ur", "-pe", "-fl", "-fo", "-rc", "-ro", "-cc", "-ce", "-cr", "-cs", "-cd", "-cq", "-cu", "-cb", "-cp", "-cm", "-co", "-vs", "-vm", "-vt", "-vn", "-vtt", "-vto", "-vr", "-vnr", "-dsr", "-vl", "-ir", "-es", "-os", "-op", "-of", "-or", "-oc", "-oi", "-hc", "-fs", "-if", "-df", "-hci", "-so", "-ssl", "-vlh", "-k", "-dbs", "-en", "-et", "-ena", "-enc", "-ens", "-enm"]:
         print("INPUT ERROR: ", word, " is not one of the accepted input flags. Please see --help for more information.")
         os._exit(1)
 
@@ -1451,6 +1458,7 @@ def main():
     minRetainedOutputDays = "-1" #days
     out_config = 'false'
     online_test_interval = "-1" #seconds
+    cockpit = "false" 
     std_out = "true" #print to std out
     virtual_local_host = "" #default: assume physical local host
     ssl = "false"
@@ -1480,7 +1488,7 @@ def main():
     flag_files = getParameterListFromCommandLine(sys.argv, '-ff', flag_log, flag_files)    
     flag_files = [ff.replace('%SID', SID) for ff in flag_files]
     if flag_files:
-        print("Will now read the configuration file (in case there is a non-ascii character it will break).")
+        print("Will now read the configuration file (in case there is a non-ascii character in this file, HANACleaner will break!).")
 
     ############ CONFIGURATION FILE ###################
     for flag_file in flag_files:
@@ -1562,6 +1570,7 @@ def main():
                     minRetainedOutputDays             = getParameterFromFile(firstWord, '-or', flagValue, flag_file, flag_log, minRetainedOutputDays)
                     out_config                        = getParameterFromFile(firstWord, '-oc', flagValue, flag_file, flag_log, out_config)
                     online_test_interval              = getParameterFromFile(firstWord, '-oi', flagValue, flag_file, flag_log, online_test_interval)
+                    cockpit                           = getParameterFromFile(firstWord, '-hc', flagValue, flag_file, flag_log, cockpit)
                     file_system                       = getParameterFromFile(firstWord, '-fs', flagValue, flag_file, flag_log, file_system)
                     ignore_filesystems                = getParameterListFromFile(firstWord, '-if', flagValue, flag_file, flag_log, ignore_filesystems)
                     do_df_check                       = getParameterFromFile(firstWord, '-df', flagValue, flag_file, flag_log, do_df_check)
@@ -1654,6 +1663,7 @@ def main():
     minRetainedOutputDays             = getParameterFromCommandLine(sys.argv, '-or', flag_log, minRetainedOutputDays)
     out_config                        = getParameterFromCommandLine(sys.argv, '-oc', flag_log, out_config)
     online_test_interval              = getParameterFromCommandLine(sys.argv, '-oi', flag_log, online_test_interval)
+    cockpit                           = getParameterFromCommandLine(sys.argv, '-hc', flag_log, cockpit)
     file_system                       = getParameterFromCommandLine(sys.argv, '-fs', flag_log, file_system)
     ignore_filesystems                = getParameterListFromCommandLine(sys.argv, '-if', flag_log, ignore_filesystems)
     do_df_check                       = getParameterFromCommandLine(sys.argv, '-df', flag_log, do_df_check)
@@ -2053,6 +2063,11 @@ def main():
         log("INPUT ERROR: -oi must be an integer. Please see --help for more information.", logman, True)
         os._exit(1)
     online_test_interval = int(online_test_interval)
+    # cockpit, -hc
+    cockpit = checkAndConvertBooleanFlag(cockpit, "-hc", logman) 
+    if cockpit and online_test_interval < 0:
+        log("INPUT ERROR: -hc is useless if not -oi >= 0. Please see --help for more information.", logman, True)
+        os._exit(1)
     ### dbases, -dbs, and dbuserkeys, -k
     if len(dbases) > 1 and len(dbuserkeys) > 1:
         log("INPUT ERROR: -k may only specify one key if -dbs is used. Please see --help for more information.", logman, True)
@@ -2100,7 +2115,7 @@ def main():
                 log(startstring, logman)
                 emailmessage += startstring+"\n"
                 ############ ONLINE TESTS (OPTIONAL) ##########################
-                while not online_and_master_tests(online_test_interval, local_dbinstance, local_host, logman):  #will check if Online and if Primary and not Stand-By, and then if Master, but only if online_test_interval > -1           
+                while not online_and_master_tests(online_test_interval, local_dbinstance, local_host, cockpit, logman):  #will check if Online and if Primary and not Stand-By, and then if Master, but only if online_test_interval > -1           
                     log("\nOne of the online checks found out that this HANA instance, "+str(local_dbinstance)+", is not online or not master. ", logman)
                     ############ CLEANUP of OWN LOGS, HANACLEANER MUST DO even though HANA is OFFLINE ##########################
                     if minRetainedOutputDays >= 0:
