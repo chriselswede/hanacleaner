@@ -1073,7 +1073,11 @@ def clean_audit_logs(retainedAuditLogDays, sqlman, logman):  # for this, both Au
         
 
 def clean_pending_emails(pendingEmailsDays, sqlman, logman):
-    nbrEmailsBefore = int(run_command(sqlman.hdbsql_jAQaxU + " \"SELECT COUNT(*) FROM _SYS_STATISTICS.STATISTICS_EMAIL_PROCESSING\"").strip(' '))
+    try:
+        nbrEmailsBefore = int(run_command(sqlman.hdbsql_jAQaxU + " \"SELECT COUNT(*) FROM _SYS_STATISTICS.STATISTICS_EMAIL_PROCESSING\"").strip(' '))
+    except:
+        log("\nERROR: Something went wrong. Probably the hanacleaner user is missing SELECT on _SYS_STATISTICS.STATISTICS_EMAIL_PROCESSING.", logman, True)
+        os._exit(1)
     if nbrEmailsBefore == 0:
         return 0
     sql = "DELETE FROM _SYS_STATISTICS.STATISTICS_EMAIL_PROCESSING WHERE SECONDS_BETWEEN(SNAPSHOT_ID, CURRENT_TIMESTAMP) > "+pendingEmailsDays+" * 86400"
