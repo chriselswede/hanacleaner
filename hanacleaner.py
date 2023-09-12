@@ -176,6 +176,10 @@ def printHelp():
     print(" -dsr    refresh age of data statistics [number days > 0], if the data statistics, found in DATA_STATISTICS is older than this     ")
     print("         number of days it will be refreshed (see SAP Note 2800028)            default: -1 (no refresh)                            ")
     print("         Note: This is the same as -vnr except that -vl and -vr are ignored.                                                       ")
+    print("         ---- IP BLOCK REFRESH ----                                                                                                ")
+    print(" -ipt    ip block table name, name of table with ip addresses to be blocked (from github.com/stamparm/ipsum), default: -1          ")
+    print(" -ips    ip block schema name, name of schema for the table with ip addresses to be blocked                                        ")
+    print(" -ipn    all IP addresses in the block IP table should be in at least these many lists, default = 0  (include all listed IPs)      ")
     print("         ---- INIFILE CONTENT HISTORY ----                                                                                         ")
     print(" -ir     inifile content history retention [days], deletes older inifile content history, default: -1 (not used) (should > 1 year) ")
     print("         Note: Only supported with 03<SPS<SPS05.                                                                                   ")
@@ -540,7 +544,7 @@ def get_all_databases(execute_sql, hdbsql_string, dbuserkey, local_host, out_sql
     return all_databases
 
 def checkIfAcceptedFlag(word):
-    if not word in ["-h", "--help", "-d", "--disclaimer", "-ff", "-be", "-bd", "-bb", "-bo", "-br", "-bn", "-tc", "-tb", "-te", "-tcb", "-tbd", "-tmo", "-tf", "-ti", "-to", "-td", "-dr", "-hr", "-gr", "-gd", "-gw", "-gm", "-zb", "-zp", "-zl", "-zo", "-zk", "-ar", "-kr", "-ao", "-ad", "-om", "-oo", "-lr", "-eh", "-eu", "-ur", "-pe", "-fl", "-fo", "-rc", "-ro", "-cc", "-ce", "-cr", "-cs", "-cd", "-cq", "-cu", "-cb", "-cp", "-cm", "-co", "-vs", "-vm", "-vt", "-vn", "-vtt", "-vto", "-vr", "-vnr", "-dsr", "-vl", "-ir", "-es", "-os", "-op", "-of", "-or", "-oc", "-oi", "-hc", "-fs", "-if", "-df", "-hci", "-so", "-ssl", "-vlh", "-k", "-dbs", "-en", "-et", "-ena", "-enc", "-ens", "-enm"]:
+    if not word in ["-h", "--help", "-d", "--disclaimer", "-ff", "-be", "-bd", "-bb", "-bo", "-br", "-bn", "-tc", "-tb", "-te", "-tcb", "-tbd", "-tmo", "-tf", "-ti", "-to", "-td", "-dr", "-hr", "-gr", "-gd", "-gw", "-gm", "-zb", "-zp", "-zl", "-zo", "-zk", "-ar", "-kr", "-ao", "-ad", "-om", "-oo", "-lr", "-eh", "-eu", "-ur", "-pe", "-fl", "-fo", "-rc", "-ro", "-cc", "-ce", "-cr", "-cs", "-cd", "-cq", "-cu", "-cb", "-cp", "-cm", "-co", "-vs", "-vm", "-vt", "-vn", "-vtt", "-vto", "-vr", "-vnr", "-dsr", "-ipt", "-ips", "-ipn", "-vl", "-ir", "-es", "-os", "-op", "-of", "-or", "-oc", "-oi", "-hc", "-fs", "-if", "-df", "-hci", "-so", "-ssl", "-vlh", "-k", "-dbs", "-en", "-et", "-ena", "-enc", "-ens", "-enm"]:
         print("INPUT ERROR: ", word, " is not one of the accepted input flags. Please see --help for more information.")
         os._exit(1)
 
@@ -1321,6 +1325,43 @@ def refresh_data_statistics(refreshAgeDS, sqlman, logman):    #Note: this is the
     nDSToRefresh_after = int(run_command(sqlman.hdbsql_jAQaxU + " \"SELECT COUNT(*) FROM SYS.DATA_STATISTICS WHERE LAST_REFRESH_TIME < ADD_DAYS(CURRENT_TIMESTAMP, -"+str(refreshAgeDS)+")\"").strip(' '))
     return [nDSs, nDSToRefresh_after - nDSToRefresh_before]
 
+def refresh_ip_block(refreshIPBlockTable, refreshIPBlockSchema, refreshIPBlockNbr, sqlman, logman):
+    nUpdatedIPs = 0
+    tableExists = int(run_command(sqlman.hdbsql_jAQaxU + " \"select count(*) from SYS.TABLES where TABLE_NAME = '"+refreshIPBlockTable+"' and SCHEMA_NAME = '"+refreshIPBlockSchema+"'\"").strip(' ')) > 0
+    if not tableExists:
+        sql = "create column table "+refreshIPBlockSchema+"."+refreshIPBlockTable+" (IP VARCHAR(20), LISTS INT)"
+        errorlog = "\nERROR: The user represented by the key "+sqlman.key+" could not create the table "+refreshIPBlockSchema+"."+refreshIPBlockTable+". \nOne possible reason for this is insufficient privilege\n"
+        errorlog += "If there is another error (i.e. not insufficient privilege) then please try to execute \n"+sql+"\nin e.g. the SQL editor in SAP HANA Studio. If you get the same error then this has nothing to do with hanacleaner\n"
+        try_execute_sql(sql, errorlog, sqlman, logman, exit_on_fail = False)  
+    downloadpath = "/tmp/ipsum"
+    if not os.path.exists(downloadpath):
+        dummyout = run_command("mkdir "+downloadpath)
+        dummyout = run_command("chmod 777 "+downloadpath)
+    dummyout = run_command("wget http://raw.githubusercontent.com/stamparm/ipsum/master/ipsum.txt -P /tmp/ipsum/ --no-proxy")
+    ipsumfile = "/tmp/ipsum/ipsum.txt" 
+    with open(ipsumfile, 'r') as fin:
+        for line in fin:
+            if line[0] != '#':
+                ip = line.split('\t')[0]
+                nLists = line.split('\t')[1].strip('\n')
+                if int(nLists) >= refreshIPBlockNbr:
+                    ipExists = int(run_command(sqlman.hdbsql_jAQaxU + " \"select count(*) from "+refreshIPBlockSchema+"."+refreshIPBlockTable+" where IP = '"+ip+"'\"").strip(' ')) > 0 
+                    if ipExists:
+                        sql = "update table "+refreshIPBlockSchema+"."+refreshIPBlockTable+" set LISTS = "+nLists+" where IP = '"+ip+"'"
+                        errorlog = "\nERROR: The user represented by the key "+sqlman.key+" could not update the table "+refreshIPBlockSchema+"."+refreshIPBlockTable+". \nOne possible reason for this is insufficient privilege\n"
+                        errorlog += "If there is another error (i.e. not insufficient privilege) then please try to execute \n"+sql+"\nin e.g. the SQL editor in SAP HANA Studio. If you get the same error then this has nothing to do with hanacleaner\n"
+                        try_execute_sql(sql, errorlog, sqlman, logman, exit_on_fail = False)
+                        nUpdatedIPs += 1  
+                    else:
+                        sql = "insert into "+refreshIPBlockSchema+"."+refreshIPBlockTable+" values ('"+ip+"', "+nLists+")"
+                        errorlog = "\nERROR: The user represented by the key "+sqlman.key+" could not insert into the table "+refreshIPBlockSchema+"."+refreshIPBlockTable+". \nOne possible reason for this is insufficient privilege\n"
+                        errorlog += "If there is another error (i.e. not insufficient privilege) then please try to execute \n"+sql+"\nin e.g. the SQL editor in SAP HANA Studio. If you get the same error then this has nothing to do with hanacleaner\n"
+                        try_execute_sql(sql, errorlog, sqlman, logman, exit_on_fail = False)
+                        nUpdatedIPs += 1   
+    #TODO remove entries where number lists are below refreshIPBlockNbr
+    dummyout = run_command("rm -R "+downloadpath)
+    return [nUpdatedIPs]
+
 def clean_output(minRetainedOutputDays, sqlman, logman):
     path = logman.path
     nFilesBefore = len([name for name in os.listdir(path) if os.path.isfile(os.path.join(path, name))])
@@ -1450,6 +1491,9 @@ def main():
     ignore2ndMon = 'true'   #by default we ignore the secondary monitoring virtual tables
     refreshAge = '-1'
     refreshAgeDS = '-1'
+    refreshIPBlockTable = ""
+    refreshIPBlockSchema = ""
+    refreshIPBlockNbr = "0"
     minRetainedIniDays = "-1" #days
     file_system = "" # by default check all file systems with  df -h
     flag_files = []    #default: no configuration input file
@@ -1566,6 +1610,9 @@ def main():
                     ignore2ndMon                      = getParameterFromFile(firstWord, '-vr', flagValue, flag_file, flag_log, ignore2ndMon)
                     refreshAge                        = getParameterFromFile(firstWord, '-vnr', flagValue, flag_file, flag_log, refreshAge)
                     refreshAgeDS                      = getParameterFromFile(firstWord, '-dsr', flagValue, flag_file, flag_log, refreshAgeDS)
+                    refreshIPBlockTable               = getParameterFromFile(firstWord, '-ipt', flagValue, flag_file, flag_log, refreshIPBlockTable)
+                    refreshIPBlockSchema              = getParameterFromFile(firstWord, '-ips', flagValue, flag_file, flag_log, refreshIPBlockSchema)
+                    refreshIPBlockNbr                 = getParameterFromFile(firstWord, '-ipn', flagValue, flag_file, flag_log, refreshIPBlockNbr)
                     minRetainedIniDays                = getParameterFromFile(firstWord, '-ir', flagValue, flag_file, flag_log, minRetainedIniDays)
                     execute_sql                       = getParameterFromFile(firstWord, '-es', flagValue, flag_file, flag_log, execute_sql)
                     out_sql                           = getParameterFromFile(firstWord, '-os', flagValue, flag_file, flag_log, out_sql)
@@ -1659,6 +1706,9 @@ def main():
     ignore2ndMon                      = getParameterFromCommandLine(sys.argv, '-vr', flag_log, ignore2ndMon)
     refreshAge                        = getParameterFromCommandLine(sys.argv, '-vnr', flag_log, refreshAge)
     refreshAgeDS                      = getParameterFromCommandLine(sys.argv, '-dsr', flag_log, refreshAgeDS)
+    refreshIPBlockTable               = getParameterFromCommandLine(sys.argv, '-ipt', flag_log, refreshIPBlockTable)
+    refreshIPBlockSchema              = getParameterFromCommandLine(sys.argv, '-ips', flag_log, refreshIPBlockSchema)
+    refreshIPBlockNbr                 = getParameterFromCommandLine(sys.argv, '-ipn', flag_log, refreshIPBlockNbr)
     minRetainedIniDays                = getParameterFromCommandLine(sys.argv, '-ir', flag_log, minRetainedIniDays)
     execute_sql                       = getParameterFromCommandLine(sys.argv, '-es', flag_log, execute_sql)
     out_sql                           = getParameterFromCommandLine(sys.argv, '-os', flag_log, out_sql)
@@ -2035,6 +2085,19 @@ def main():
         log("INPUT ERROR: -dsr must be an integer. Please see --help for more information.", logman, True)
         os._exit(1)
     refreshAgeDS = int(refreshAgeDS)
+    ### refreshIPBlockTable, -ipt
+    if refreshIPBlockTable and not refreshIPBlockSchema:
+        log("INPUT ERROR: -ipt is specified but not -ips. This makes no sense. Please see --help for more information.")
+        os._exit(1)
+    ### refreshIPBlockSchema, -ips
+    if refreshIPBlockSchema and not refreshIPBlockTable:
+        log("INPUT ERROR: -ips is specified but not -ipt. This makes no sense. Please see --help for more information.")
+        os._exit(1)
+    ### refreshIPBlockNbr, -ipn
+    if not is_integer(refreshIPBlockNbr):
+        log("INPUT ERROR: -ipn must be an integer. Please see --help for more information.", logman, True)
+        os._exit(1)
+    refreshIPBlockNbr = int(refreshIPBlockNbr)
     ### minRetainedIniDays, -ir
     if not is_integer(minRetainedIniDays):
         log("INPUT ERROR: -ir must be an integer. Please see --help for more information.", logman, True)
@@ -2290,6 +2353,13 @@ def main():
                         emailmessage += logmessage+"\n"
                     else:
                         log("    (Refresh of data statistics for was not done since -dsr was not more than 0 (or not specified))", logman)
+                    if refreshIPBlockTable:
+                        [nAddedIPs] = refresh_ip_block(refreshIPBlockTable, refreshIPBlockSchema, refreshIPBlockNbr, sqlman, logman)
+                        logmessage = "The ip block table was updated with "+str(nAddedIPs)+" IPs) (-ipt)" 
+                        log(logmessage, logman)
+                        emailmessage += logmessage+"\n"
+                    else:
+                        log("    (Refresh of IP blocks was not done since -ipt was not specified)", logman)
                     if minRetainedIniDays >= 0:
                         nCleaned = clean_ini(minRetainedIniDays, version, revision, mrevision, sqlman, logman)
                         logmessage = str(nCleaned)+" inifile history contents were removed" 
