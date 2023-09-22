@@ -693,13 +693,15 @@ def clean_trace_files(retainedTraceContentDays, retainedBacklogDays, retainedExp
     if outputRemovedTraces:
         beforeTraceFiles = run_command(sqlman.hdbsql_jAaxU + " \"select HOST, FILE_NAME from sys.m_tracefiles order by file_mtime desc\"")
     if retainedTraceContentDays != "-1" or retainedBacklogDays != "-1" or retainedExpensiveTraceContentDays != "-1":
-        oldestRetainedTraceContentDate = datetime.now() + timedelta(days = -int(retainedTraceContentDays))
         timeStampsForClearTraces = [datetime.now().strftime("%Y%m%d%H%M%S"), (datetime.now() + timedelta(seconds=1)).strftime("%Y%m%d%H%M%S"), (datetime.now() + timedelta(seconds=2)).strftime("%Y%m%d%H%M%S"), (datetime.now() + timedelta(seconds=3)).strftime("%Y%m%d%H%M%S")]
         if retainedTraceContentDays != "-1":
+            oldestRetainedTraceContentDate = datetime.now() + timedelta(days = -int(retainedTraceContentDays))
             clear_traces("'ALERT','CLIENT','CRASHDUMP','EMERGENCYDUMP','RTEDUMP','UNLOAD','ROWSTOREREORG','SQLTRACE','*'", oldestRetainedTraceContentDate, backupTraceContent, sqlman, logman)
         if retainedBacklogDays != "-1":   # SAP Note 2797078
+            oldestRetainedTraceContentDate = datetime.now() + timedelta(days = -int(retainedBacklogDays))
             clear_traces("'BACKUP','BACKINT'", oldestRetainedTraceContentDate, backupTraceContent, sqlman, logman)  
         if retainedExpensiveTraceContentDays != "-1":   # internal incident 1980358670, SAP Note 2819941 shows a BUG that should be fixed! "expected behaviour" = bull s###
+            oldestRetainedTraceContentDate = datetime.now() + timedelta(days = -int(retainedExpensiveTraceContentDays))
             clear_traces("'EXPENSIVESTATEMENT'", oldestRetainedTraceContentDate, backupTraceContent, sqlman, logman)  
         if backupTraceDirectory:
             if not DATABASE:
@@ -2355,7 +2357,7 @@ def main():
                         log("    (Refresh of data statistics for was not done since -dsr was not more than 0 (or not specified))", logman)
                     if refreshIPBlockTable:
                         [nAddedIPs] = refresh_ip_block(refreshIPBlockTable, refreshIPBlockSchema, refreshIPBlockNbr, sqlman, logman)
-                        logmessage = "The ip block table was updated with "+str(nAddedIPs)+" IPs) (-ipt)" 
+                        logmessage = "The ip block table was updated with "+str(nAddedIPs)+" IPs (-ipt)" 
                         log(logmessage, logman)
                         emailmessage += logmessage+"\n"
                     else:
