@@ -176,6 +176,13 @@ def printHelp():
     print(" -dsr    refresh age of data statistics [number days > 0], if the data statistics, found in DATA_STATISTICS is older than this     ")
     print("         number of days it will be refreshed (see SAP Note 2800028)            default: -1 (no refresh)                            ")
     print("         Note: This is the same as -vnr except that -vl and -vr are ignored.                                                       ")
+    print("         ---- VIRTUAL TABLE REFRESH ----                                                                                           ")
+    print(" -vtr    refresh virtual tables [I/W/E], a string that defines if refresh should be done on virtual tables shown as mismatch       ")
+    print("         from the procedure CHECK_VIRTUAL_TABLES with a severity of INFO, WARNING, and/or ERROR. The string can be 1, 2, or 3      ")
+    print("         characters long with the characters I (for INFO), W (for WARNING), and E (for ERROR), defeault: ''    (not used)          ")
+    print(" -vts    schema for refresh virtual table, the -vtr will only be done for tables in this schema, default: '' (all schemas)         ")
+    print(" -vta    table for refresh virtual table, the -vtr will only be done for this virtual table, default: '' (all virtual tables)      ")
+    print(" -vtp    print VTs [true/false], print VTs found by CHECK_VIRTUAL_TABLES before and after the refreshs, default: false             ")
     print("         ---- IP BLOCK REFRESH ----                                                                                                ")
     print(" -ipt    ip block table name, name of table with ip addresses to be blocked (from github.com/stamparm/ipsum), default: -1          ")
     print(" -ips    ip block schema name, name of schema for the table with ip addresses to be blocked                                        ")
@@ -354,6 +361,28 @@ class EmailSender:
         else:
             print("Configured mail server will be used.")
         print("Reciever Emails: ", self.recieverEmails)
+
+class VTCheck:
+    def __init__(self, schema, virtualtable, column, action, explanation, severity):
+        self.schema = schema
+        self.virtualtable = virtualtable
+        self.column = column
+        self.action = action
+        self.explanation = explanation
+        self.severity = severity
+    def printVTCheck(self):
+        printstring = "-----------------------------------------------------------------\n"
+        printstring += "Virtual Table "+self.schema+"."+self.virtualtable
+        if self.column:
+            printstring += " has an issue with column "+self.column
+        else:
+            printstring += " has an issue"
+        printstring += " with severity "+self.severity+".\n"
+        printstring += "The action that caused the issue is "+self.action+".\n"
+        printstring += "Explanation: "+self.explanation+".\n"
+        printstring += "-----------------------------------------------------------------"
+        print(printstring)
+
 
 ######################## FUNCTION DEFINITIONS ################################
 
@@ -544,7 +573,7 @@ def get_all_databases(execute_sql, hdbsql_string, dbuserkey, local_host, out_sql
     return all_databases
 
 def checkIfAcceptedFlag(word):
-    if not word in ["-h", "--help", "-d", "--disclaimer", "-ff", "-be", "-bd", "-bb", "-bo", "-br", "-bn", "-tc", "-tb", "-te", "-tcb", "-tbd", "-tmo", "-tf", "-ti", "-to", "-td", "-dr", "-hr", "-gr", "-gd", "-gw", "-gm", "-zb", "-zp", "-zl", "-zo", "-zk", "-ar", "-kr", "-ao", "-ad", "-om", "-oo", "-lr", "-eh", "-eu", "-ur", "-pe", "-fl", "-fo", "-rc", "-ro", "-cc", "-ce", "-cr", "-cs", "-cd", "-cq", "-cu", "-cb", "-cp", "-cm", "-co", "-vs", "-vm", "-vt", "-vn", "-vtt", "-vto", "-vr", "-vnr", "-dsr", "-ipt", "-ips", "-ipn", "-vl", "-ir", "-es", "-os", "-op", "-of", "-or", "-oc", "-oi", "-hc", "-fs", "-if", "-df", "-hci", "-so", "-ssl", "-vlh", "-k", "-dbs", "-en", "-et", "-ena", "-enc", "-ens", "-enm"]:
+    if not word in ["-h", "--help", "-d", "--disclaimer", "-ff", "-be", "-bd", "-bb", "-bo", "-br", "-bn", "-tc", "-tb", "-te", "-tcb", "-tbd", "-tmo", "-tf", "-ti", "-to", "-td", "-dr", "-hr", "-gr", "-gd", "-gw", "-gm", "-zb", "-zp", "-zl", "-zo", "-zk", "-ar", "-kr", "-ao", "-ad", "-om", "-oo", "-lr", "-eh", "-eu", "-ur", "-pe", "-fl", "-fo", "-rc", "-ro", "-cc", "-ce", "-cr", "-cs", "-cd", "-cq", "-cu", "-cb", "-cp", "-cm", "-co", "-vs", "-vm", "-vt", "-vn", "-vtt", "-vto", "-vr", "-vnr", "-dsr", "-vtr", "-vts", "-vta", "-vtp", "-ipt", "-ips", "-ipn", "-vl", "-ir", "-es", "-os", "-op", "-of", "-or", "-oc", "-oi", "-hc", "-fs", "-if", "-df", "-hci", "-so", "-ssl", "-vlh", "-k", "-dbs", "-en", "-et", "-ena", "-enc", "-ens", "-enm"]:
         print("INPUT ERROR: ", word, " is not one of the accepted input flags. Please see --help for more information.")
         os._exit(1)
 
@@ -1327,6 +1356,39 @@ def refresh_data_statistics(refreshAgeDS, sqlman, logman):    #Note: this is the
     nDSToRefresh_after = int(run_command(sqlman.hdbsql_jAQaxU + " \"SELECT COUNT(*) FROM SYS.DATA_STATISTICS WHERE LAST_REFRESH_TIME < ADD_DAYS(CURRENT_TIMESTAMP, -"+str(refreshAgeDS)+")\"").strip(' '))
     return [nDSs, nDSToRefresh_after - nDSToRefresh_before]
 
+def refresh_virtual_tables(refreshVTs, refreshVTsSchema, refreshVTsTable, printVTChecks, sqlman, logman):
+    schema_filter = "'"+refreshVTsSchema+"'" if refreshVTsSchema else "NULL"
+    table_filter = "'"+refreshVTsTable+"'" if refreshVTsTable else "NULL"
+    listOfVTsToRefresh = run_command(sqlman.hdbsql_jAaxU + " \"CALL CHECK_VIRTUAL_TABLES('CHECK', "+schema_filter+", "+table_filter+")\"").split('|')  # cannot use splitlines(1) since there could be \n inside fields
+    listOfVTsToRefresh = [vt.replace('\n','') for vt in listOfVTsToRefresh] 
+    listOfVTsToRefresh = [vt for vt in listOfVTsToRefresh if vt] 
+    listOfVTsToRefresh = [vt.strip(' ') for vt in listOfVTsToRefresh] 
+    listOfVTsToRefresh = [listOfVTsToRefresh[i:i + 6] for i in range(0, len(listOfVTsToRefresh), 6)]
+    nVTsToRefreshBefore = len(listOfVTsToRefresh)
+    if printVTChecks:
+        print("*** Virtual Table Checks (by CHECK_VIRTUAL_TABLES) BEFORE refresh:")
+    for vt in listOfVTsToRefresh:
+        aVTCheck = VTCheck(vt[0], vt[1], vt[2], vt[3], vt[4], vt[5])
+        if printVTChecks:
+            aVTCheck.printVTCheck()
+        if ('I' in refreshVTs and aVTCheck.severity == 'INFO') or ('W' in refreshVTs and aVTCheck.severity == 'WARNING') or ('E' in refreshVTs and aVTCheck.severity == 'ERROR'):
+            sql = 'ALTER VIRTUAL TABLE \\\"'+aVTCheck.schema+'\\\".\\\"'+aVTCheck.virtualtable+'\\\" REFRESH DEFINITION' # necessary for tables starting with / and for tables with mixed letter case      
+            errorlog = "\nERROR: The user represented by the key "+sqlman.key+" could not refresh the virtual table "+aVTCheck.schema+"."+aVTCheck.virtualtable+". \nOne possible reason for this is insufficient privilege\n"
+            errorlog += "\nTry, as the user represented by the key "+sqlman.key+" to execute the refresh. If you then also get an error, then this has nothing to do with HANACleaner."
+            try_execute_sql(sql, errorlog, sqlman, logman, exit_on_fail = False) 
+    listOfVTsToRefresh = run_command(sqlman.hdbsql_jAaxU + " \"CALL CHECK_VIRTUAL_TABLES('CHECK', "+schema_filter+", "+table_filter+")\"").split('|')  # cannot use splitlines(1) since there could be \n inside fields
+    listOfVTsToRefresh = [vt.replace('\n','') for vt in listOfVTsToRefresh] 
+    listOfVTsToRefresh = [vt for vt in listOfVTsToRefresh if vt] 
+    listOfVTsToRefresh = [vt.strip(' ') for vt in listOfVTsToRefresh] 
+    listOfVTsToRefresh = [listOfVTsToRefresh[i:i + 6] for i in range(0, len(listOfVTsToRefresh), 6)]
+    if printVTChecks:
+        print("*** Virtual Table Checks (by CHECK_VIRTUAL_TABLES) AFTER refresh:")
+        for vt in listOfVTsToRefresh:
+            aVTCheck = VTCheck(vt[0], vt[1], vt[2], vt[3], vt[4], vt[5])
+            aVTCheck.printVTCheck()
+    nVTsToRefreshAfter = len(listOfVTsToRefresh)
+    return nVTsToRefreshBefore - nVTsToRefreshAfter
+
 def refresh_ip_block(refreshIPBlockTable, refreshIPBlockSchema, refreshIPBlockNbr, sqlman, logman):
     nUpdatedIPs = 0
     tableExists = int(run_command(sqlman.hdbsql_jAQaxU + " \"select count(*) from SYS.TABLES where TABLE_NAME = '"+refreshIPBlockTable+"' and SCHEMA_NAME = '"+refreshIPBlockSchema+"'\"").strip(' ')) > 0
@@ -1493,6 +1555,10 @@ def main():
     ignore2ndMon = 'true'   #by default we ignore the secondary monitoring virtual tables
     refreshAge = '-1'
     refreshAgeDS = '-1'
+    refreshVTs = ""
+    refreshVTsSchema = ""
+    refreshVTsTable = ""
+    printVTChecks = 'false'
     refreshIPBlockTable = ""
     refreshIPBlockSchema = ""
     refreshIPBlockNbr = "0"
@@ -1612,6 +1678,10 @@ def main():
                     ignore2ndMon                      = getParameterFromFile(firstWord, '-vr', flagValue, flag_file, flag_log, ignore2ndMon)
                     refreshAge                        = getParameterFromFile(firstWord, '-vnr', flagValue, flag_file, flag_log, refreshAge)
                     refreshAgeDS                      = getParameterFromFile(firstWord, '-dsr', flagValue, flag_file, flag_log, refreshAgeDS)
+                    refreshVTs                        = getParameterFromFile(firstWord, '-vtr', flagValue, flag_file, flag_log, refreshVTs)  
+                    refreshVTsSchema                  = getParameterFromFile(firstWord, '-vts', flagValue, flag_file, flag_log, refreshVTsSchema)
+                    refreshVTsTable                   = getParameterFromFile(firstWord, '-vta', flagValue, flag_file, flag_log, refreshVTsTable)
+                    printVTChecks                     = getParameterFromFile(firstWord, '-vtp', flagValue, flag_file, flag_log, printVTChecks)
                     refreshIPBlockTable               = getParameterFromFile(firstWord, '-ipt', flagValue, flag_file, flag_log, refreshIPBlockTable)
                     refreshIPBlockSchema              = getParameterFromFile(firstWord, '-ips', flagValue, flag_file, flag_log, refreshIPBlockSchema)
                     refreshIPBlockNbr                 = getParameterFromFile(firstWord, '-ipn', flagValue, flag_file, flag_log, refreshIPBlockNbr)
@@ -1708,6 +1778,10 @@ def main():
     ignore2ndMon                      = getParameterFromCommandLine(sys.argv, '-vr', flag_log, ignore2ndMon)
     refreshAge                        = getParameterFromCommandLine(sys.argv, '-vnr', flag_log, refreshAge)
     refreshAgeDS                      = getParameterFromCommandLine(sys.argv, '-dsr', flag_log, refreshAgeDS)
+    refreshVTs                        = getParameterFromCommandLine(sys.argv, '-vtr', flag_log, refreshVTs)
+    refreshVTsSchema                  = getParameterFromCommandLine(sys.argv, '-vts', flag_log, refreshVTsSchema)
+    refreshVTsTable                   = getParameterFromCommandLine(sys.argv, '-vta', flag_log, refreshVTsTable)
+    printVTChecks                     = getParameterFromCommandLine(sys.argv, '-vtp', flag_log, printVTChecks)
     refreshIPBlockTable               = getParameterFromCommandLine(sys.argv, '-ipt', flag_log, refreshIPBlockTable)
     refreshIPBlockSchema              = getParameterFromCommandLine(sys.argv, '-ips', flag_log, refreshIPBlockSchema)
     refreshIPBlockNbr                 = getParameterFromCommandLine(sys.argv, '-ipn', flag_log, refreshIPBlockNbr)
@@ -2087,6 +2161,15 @@ def main():
         log("INPUT ERROR: -dsr must be an integer. Please see --help for more information.", logman, True)
         os._exit(1)
     refreshAgeDS = int(refreshAgeDS)
+    ### refreshVTs, -vtr
+    if not len(refreshVTs) in [1, 2, 3]:
+        log("INPUT ERROR: -vtr must be of length 1, 2 or 3. Please see --help for more information.", logman, True)
+        os._exit(1)
+    if len([char for char in refreshVTs if char not in "IWE"]):
+        log("INPUT ERROR: -vtr may only contain the letters I, W or E. Please see --help for more information.", logman, True)
+        os._exit(1)
+    ### printVTChecks, -vtp
+    printVTChecks = checkAndConvertBooleanFlag(printVTChecks, "-vtp", logman)
     ### refreshIPBlockTable, -ipt
     if refreshIPBlockTable and not refreshIPBlockSchema:
         log("INPUT ERROR: -ipt is specified but not -ips. This makes no sense. Please see --help for more information.")
@@ -2355,6 +2438,13 @@ def main():
                         emailmessage += logmessage+"\n"
                     else:
                         log("    (Refresh of data statistics for was not done since -dsr was not more than 0 (or not specified))", logman)
+                    if refreshVTs:
+                        nRefreshedVTs = refresh_virtual_tables(refreshVTs, refreshVTsSchema, refreshVTsTable, printVTChecks, sqlman, logman)
+                        logmessage = "Refresh of "+str(nRefreshedVTs)+" virtual tables was done (-vtr)" 
+                        log(logmessage, logman)
+                        emailmessage += logmessage+"\n"
+                    else:
+                        log("    (Refresh of virtual tables was not done since -vtr was not specified)", logman)
                     if refreshIPBlockTable:
                         [nAddedIPs] = refresh_ip_block(refreshIPBlockTable, refreshIPBlockSchema, refreshIPBlockNbr, sqlman, logman)
                         logmessage = "The ip block table was updated with "+str(nAddedIPs)+" IPs (-ipt)" 
