@@ -2162,12 +2162,13 @@ def main():
         os._exit(1)
     refreshAgeDS = int(refreshAgeDS)
     ### refreshVTs, -vtr
-    if not len(refreshVTs) in [1, 2, 3]:
-        log("INPUT ERROR: -vtr must be of length 1, 2 or 3. Please see --help for more information.", logman, True)
-        os._exit(1)
-    if len([char for char in refreshVTs if char not in "IWE"]):
-        log("INPUT ERROR: -vtr may only contain the letters I, W or E. Please see --help for more information.", logman, True)
-        os._exit(1)
+    if refreshVTs:
+        if not len(refreshVTs) in [1, 2, 3]:
+            log("INPUT ERROR: -vtr must be of length 1, 2 or 3. Please see --help for more information.", logman, True)
+            os._exit(1)
+        if len([char for char in refreshVTs if char not in "IWE"]):
+            log("INPUT ERROR: -vtr may only contain the letters I, W or E. Please see --help for more information.", logman, True)
+            os._exit(1)
     ### printVTChecks, -vtp
     printVTChecks = checkAndConvertBooleanFlag(printVTChecks, "-vtp", logman)
     ### refreshIPBlockTable, -ipt
