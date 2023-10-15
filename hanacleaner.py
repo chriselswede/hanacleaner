@@ -1359,35 +1359,44 @@ def refresh_data_statistics(refreshAgeDS, sqlman, logman):    #Note: this is the
 def refresh_virtual_tables(refreshVTs, refreshVTsSchema, refreshVTsTable, printVTChecks, sqlman, logman):
     schema_filter = "'"+refreshVTsSchema+"'" if refreshVTsSchema else "NULL"
     table_filter = "'"+refreshVTsTable+"'" if refreshVTsTable else "NULL"
-    listOfVTsToRefresh = run_command(sqlman.hdbsql_jAaxU + " \"CALL CHECK_VIRTUAL_TABLES('CHECK', "+schema_filter+", "+table_filter+")\"").split('|')  # cannot use splitlines(1) since there could be \n inside fields
-    listOfVTsToRefresh = [vt.replace('\n','') for vt in listOfVTsToRefresh] 
-    listOfVTsToRefresh = [vt for vt in listOfVTsToRefresh if vt] 
-    listOfVTsToRefresh = [vt.strip(' ') for vt in listOfVTsToRefresh] 
-    listOfVTsToRefresh = [listOfVTsToRefresh[i:i + 6] for i in range(0, len(listOfVTsToRefresh), 6)]
-    nVTsToRefreshBefore = len(listOfVTsToRefresh)
+    listOfMismatches = run_command(sqlman.hdbsql_jAaxU + " \"CALL CHECK_VIRTUAL_TABLES('CHECK', "+schema_filter+", "+table_filter+")\"").split('|')  # cannot use splitlines(1) since there could be \n inside fields
+    listOfMismatches = [vt.replace('\n','') for vt in listOfMismatches] 
+    listOfMismatches = [vt for vt in listOfMismatches if vt] 
+    listOfMismatches = [vt.strip(' ') for vt in listOfMismatches] 
+    listOfMismatches = [listOfMismatches[i:i + 6] for i in range(0, len(listOfMismatches), 6)]
+    nMismatchesBefore = len(listOfMismatches)
     if printVTChecks:
-        print("*** Virtual Table Checks (by CHECK_VIRTUAL_TABLES) BEFORE refresh:")
+        print("*** VT Mismatches BEFORE Refresh (by CHECK_VIRTUAL_TABLES):")
+        for vt in listOfMismatches:
+            aVTCheck = VTCheck(vt[0], vt[1], vt[2], vt[3], vt[4], vt[5])
+            aVTCheck.printVTCheck()
+    listOfVTsToRefresh = []
+    for mismatch in listOfMismatches:   # remove dublicates
+        alreadyForRefresh = False
+        for refresh in listOfVTsToRefresh:
+            if mismatch[0] == refresh[0] and mismatch[1] == refresh[1]:
+                alreadyForRefresh = True
+        if not alreadyForRefresh:
+            listOfVTsToRefresh.append(mismatch)
     for vt in listOfVTsToRefresh:
         aVTCheck = VTCheck(vt[0], vt[1], vt[2], vt[3], vt[4], vt[5])
-        if printVTChecks:
-            aVTCheck.printVTCheck()
         if ('I' in refreshVTs and aVTCheck.severity == 'INFO') or ('W' in refreshVTs and aVTCheck.severity == 'WARNING') or ('E' in refreshVTs and aVTCheck.severity == 'ERROR'):
             sql = 'ALTER VIRTUAL TABLE \\\"'+aVTCheck.schema+'\\\".\\\"'+aVTCheck.virtualtable+'\\\" REFRESH DEFINITION' # necessary for tables starting with / and for tables with mixed letter case      
             errorlog = "\nERROR: The user represented by the key "+sqlman.key+" could not refresh the virtual table "+aVTCheck.schema+"."+aVTCheck.virtualtable+". \nOne possible reason for this is insufficient privilege\n"
             errorlog += "\nTry, as the user represented by the key "+sqlman.key+" to execute the refresh. If you then also get an error, then this has nothing to do with HANACleaner."
             try_execute_sql(sql, errorlog, sqlman, logman, exit_on_fail = False) 
-    listOfVTsToRefresh = run_command(sqlman.hdbsql_jAaxU + " \"CALL CHECK_VIRTUAL_TABLES('CHECK', "+schema_filter+", "+table_filter+")\"").split('|')  # cannot use splitlines(1) since there could be \n inside fields
-    listOfVTsToRefresh = [vt.replace('\n','') for vt in listOfVTsToRefresh] 
-    listOfVTsToRefresh = [vt for vt in listOfVTsToRefresh if vt] 
-    listOfVTsToRefresh = [vt.strip(' ') for vt in listOfVTsToRefresh] 
-    listOfVTsToRefresh = [listOfVTsToRefresh[i:i + 6] for i in range(0, len(listOfVTsToRefresh), 6)]
+    listOfMismatches = run_command(sqlman.hdbsql_jAaxU + " \"CALL CHECK_VIRTUAL_TABLES('CHECK', "+schema_filter+", "+table_filter+")\"").split('|')  # cannot use splitlines(1) since there could be \n inside fields
+    listOfMismatches = [vt.replace('\n','') for vt in listOfMismatches] 
+    listOfMismatches = [vt for vt in listOfMismatches if vt] 
+    listOfMismatches = [vt.strip(' ') for vt in listOfMismatches] 
+    listOfMismatches = [listOfMismatches[i:i + 6] for i in range(0, len(listOfMismatches), 6)]
     if printVTChecks:
-        print("*** Virtual Table Checks (by CHECK_VIRTUAL_TABLES) AFTER refresh:")
-        for vt in listOfVTsToRefresh:
+        print("*** VT Mismatches AFTER Refresh (by CHECK_VIRTUAL_TABLES):")
+        for vt in listOfMismatches:
             aVTCheck = VTCheck(vt[0], vt[1], vt[2], vt[3], vt[4], vt[5])
             aVTCheck.printVTCheck()
-    nVTsToRefreshAfter = len(listOfVTsToRefresh)
-    return nVTsToRefreshBefore - nVTsToRefreshAfter
+    nMismatchesAfter = len(listOfMismatches)
+    return nMismatchesBefore - nMismatchesAfter
 
 def refresh_ip_block(refreshIPBlockTable, refreshIPBlockSchema, refreshIPBlockNbr, sqlman, logman):
     nUpdatedIPs = 0
@@ -2441,7 +2450,7 @@ def main():
                         log("    (Refresh of data statistics for was not done since -dsr was not more than 0 (or not specified))", logman)
                     if refreshVTs:
                         nRefreshedVTs = refresh_virtual_tables(refreshVTs, refreshVTsSchema, refreshVTsTable, printVTChecks, sqlman, logman)
-                        logmessage = "Refresh of "+str(nRefreshedVTs)+" virtual tables was done (-vtr)" 
+                        logmessage = "Thanks to refresh of virtual tables there are now "+str(nRefreshedVTs)+" less missmatches (-vtr)" 
                         log(logmessage, logman)
                         emailmessage += logmessage+"\n"
                     else:
