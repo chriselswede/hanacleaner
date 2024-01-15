@@ -57,7 +57,6 @@ def printHelp():
     print(" -tf     retention days for trace files [days], trace files, in all hosts, that are older than this number of days are removed     ")
     print("         (except for the currently opened trace files)                                                                             ")
     print("         Only files with these strings in the filenames are taken into account (please let me know if I should add some):          ")
-    print("               .trc, .log, .stat, .py, .tpt, .gz, .zip, .old, .xml, .txt, .docs, .cfg, .dmp, .cockpit, .xs                         ")
     print("               .trc, .log, .stat, .py, .tpt, .gz, .zip, .old, .xml, .txt, .docs, .cfg, .dmp, .cockpit, .xs,                        ")
     print("               dev_icm_sec, wdisp_icm_log, .output                                                                                 ")
     print("         There is a list of files that are ignored  (to add your own files to this ignore list, see -ti)                           ")
@@ -715,6 +714,7 @@ def clear_traces(trace_list, oldestRetainedTraceContentDate, backupTraceContent,
 def clean_trace_files(retainedTraceContentDays, retainedBacklogDays, retainedExpensiveTraceContentDays, backupTraceContent, backupTraceDirectory, timeOutForMove, retainedTraceFilesDays, ignoreTraceFiles, outputTraces, outputRemovedTraces, SID, DATABASE, local_dbinstance, hosts, sqlman, logman):
     nbrTracesBefore = int(run_command(sqlman.hdbsql_jAQaxU + " \"SELECT COUNT(*) FROM sys.m_tracefiles\"").strip(' '))
     if nbrTracesBefore == 0:
+        log("\nIt appears there are no trace files. Is this correct, or is your HANACleaner user missing TRACEADMIN?\n", logman)
         return 0  
     if outputTraces:
         beforeTraces = run_command(sqlman.hdbsql_jAxU + " \"select * from sys.m_tracefiles order by file_mtime desc\"")
