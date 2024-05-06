@@ -3,7 +3,7 @@ A house keeping script for SAP HANA
 ---
 
 ### DESCRIPTION:  
-The HANA cleaner is a house keeping script for SAP HANA. It can be used to clean the backup catalog, diagnostic files, alerts, to compress the backup logs, and much more. It should be executed by <sid>adm or, in case you use a CRON job, with the same environment as the <sid>adm. See SAP Note [2399996](https://launchpad.support.sap.com/#/notes/=2399996) and SAP Note [2400024](https://launchpad.support.sap.com/#/notes/=2400024). For a list of all input flags execute with  
+The HANA cleaner is a house keeping script for SAP HANA. It can be used to clean the backup catalog, diagnostic files, alerts, to compress the backup logs, and much more. It should be executed by <sid>adm or, in case you use a CRON job, with the same environment as the <sid>adm. See SAP Note [2399996](https://me.sap.com/notes/2399996) and SAP Note [2400024](https://me.sap.com/notes/2400024). For a list of all input flags execute with  
    `python hanacleaner.py --help`
 
 
@@ -17,7 +17,7 @@ ANY USAGE OF HANACLEANER ASSUMES THAT YOU HAVE UNDERSTOOD AND AGREED THAT:
 5. HANACleaner is a one-man's hobby; developed, maintained and supported only during non-working hours  
 6. HANACleaner expects "default" HANA environment with no modifications done in the .bashrc or other files
 7. All HANACleaner documentations have to be read and understood before any usage:
-* SAP Note [2399996](https://launchpad.support.sap.com/#/notes/=2399996)
+* SAP Note [2399996](https://me.sap.com/notes/2399996)
 * The .pdf file hanacleaner_intro.pdf
 * All output from executing    `python hanacleaner.py --help`  
 8. HANACleaner can help you execute certain SAP HANA tasks automatically but is NOT an attempt to teach you SAP HANA  
@@ -27,4 +27,4 @@ ANY USAGE OF HANACLEANER ASSUMES THAT YOU HAVE UNDERSTOOD AND AGREED THAT:
    To then learn what those statements do before you executing HANACleaner without "-es false", see SAP HANA Admin Guide or 
    SAP HANA System Administration Workshops 
 9. HANACleaner is not providing any recommendations, all flags shown in the documentation (see point 6.) are only examples  
-   For recommendations see SAP HANA Administration Workshops or other documentation, like e.g. SAP Note [2400024](https://launchpad.support.sap.com/#/notes/=2400024)
+   For recommendations see SAP HANA Administration Workshops or other documentation, like e.g. SAP Note [2400024](https://me.sap.com/notes/2400024)
