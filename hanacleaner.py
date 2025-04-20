@@ -122,6 +122,16 @@ def printHelp():
     print("         service is started: ALTER SYSTEM RECLAIM DATAVOLUME '<host>:<port>' 120 DEFRAGMENT,        default: -1 (not used)         ")
     print("         Note: If you use System Replication see Q19 in SAP Note 1999880.                                                          ")
     print(" -fo     output fragmentation [true/false], displays data volume statistics before and after defragmentation, default: false       ")
+    print("         ---- LOB REORG ----                                                                                                       ")
+    print(" -lobf   max allowed fragmentation for an LOB [%], an LOB column with higher percentage of fragmentation, i.e. (physical size -    ")
+    print("         binary size)/physical size, will be reorganized, default: -1 (not used)                                                   ")
+    print(" -lobp   fragmentation check also includes packed [true/false], decides if -lobf should also include LOBs that already are packed, ")
+    print("         default: false                                                                                                            ")
+    print(" -lobs   too many small file LOBs [millions], if an LOB column has too many small (< 4 KB) file LOBs, this column will be          ")
+    print("         reorganized, default: -1 (not used)                                                                                       ")
+    print(" -lobn   too many LOBs [millions], if an LOB column has too many LOB objects, it will be reorganized, default: -1 (not used)       ")
+    print(" -lobw   write LOBs [true/false], print the LOBs before and after the lob reorg, default: false                                    ")
+    print(" -lobl   LOB location [list of schemas], comma seperated list of schemas that are considered for -lobf, -lobs, and -lobn           ")
     print("         ----  MULTIPLE ROW STORE TABLE CONTAINERS   ----                                                                          ")
     print(" -rc     row store containers cleanup [true/false], switch to clean up multiple row store table containers, default: false         ")
     print("         Note: Unfortunately there is NO nice way to give privileges to the DB User to be allowed to do this. Either you can       ")
@@ -388,15 +398,18 @@ class VTCheck:
 
 ######################## FUNCTION DEFINITIONS ################################
 
-def run_command(cmd, stderrdevnull = False):
-    if sys.version_info[0] == 2: 
-        if stderrdevnull:
-            with open(os.devnull, 'w') as devnull:
-                out = subprocess.check_output(cmd, shell=True, stderr=devnull).strip("\n")
-        else:
-            out = subprocess.check_output(cmd, shell=True).strip("\n")
+def run_command(cmd, check = True):
+    if sys.version_info[0] == 2:  # stop supporting Python 2 as soon as SPS05 is not supported
+        out = subprocess.check_output(cmd, shell=True).strip("\n")
     elif sys.version_info[0] == 3:
-        out = subprocess.run(cmd, shell=True, capture_output=True, text=True).stdout.strip("\n")
+        if check:
+            out = ''
+            try:
+                out = subprocess.run(cmd, shell=True, capture_output=True, text=True, check=True).stdout.strip("\n")
+            except subprocess.CalledProcessError as e:
+                print("ERROR: Could not run\n\t"+cmd+"\nERROR MESSAGE:\n"+e.stderr)
+        else:
+            out = subprocess.run(cmd, shell=True, capture_output=True, text=True).stdout.strip("\n")
     else:
         print("ERROR: Wrong Python version")
         os._exit(1)
@@ -442,9 +455,10 @@ def try_execute_sql(sql, errorlog, sqlman, logman, exit_on_fail = True, always_e
         if sqlman.log:
             log(sql, logman)
         if sqlman.execute or always_execute:
-            out = run_command(sqlman.hdbsql_jAaxU + " \""+sql+"\"")
-    except:
-        errorMessage = "ERROR: Could not execute\n"+sql+"\n"+errorlog
+            sql = sqlman.hdbsql_jAaxU + " \""+sql+"\""
+            out = subprocess.run(sql, shell=True, capture_output=True, text=True, check=True).stdout.strip("\n")
+    except subprocess.CalledProcessError as e:
+        errorMessage = "ERROR: Could not execute\n\t"+sql+"\nERROR MESSAGE:\n"+e.stderr+"\n"+errorlog
         succeeded = False
         if exit_on_fail:
             log(errorMessage, logman, True)
@@ -575,7 +589,7 @@ def get_all_databases(execute_sql, hdbsql_string, dbuserkey, local_host, out_sql
     return all_databases
 
 def checkIfAcceptedFlag(word):
-    if not word in ["-h", "--help", "-d", "--disclaimer", "-ff", "-be", "-bd", "-bb", "-bo", "-br", "-bn", "-tc", "-tb", "-te", "-tcb", "-tbd", "-tmo", "-tf", "-ti", "-to", "-td", "-dr", "-hr", "-gr", "-gd", "-gw", "-gm", "-zb", "-zp", "-zl", "-zo", "-zk", "-ar", "-kr", "-ao", "-ad", "-om", "-oo", "-lr", "-eh", "-eu", "-ur", "-pe", "-fl", "-fo", "-rc", "-ro", "-cc", "-ce", "-cr", "-cs", "-cd", "-cq", "-cu", "-cb", "-cp", "-cm", "-co", "-vs", "-vm", "-vt", "-vn", "-vtt", "-vto", "-vr", "-vnr", "-dsr", "-vtr", "-vts", "-vta", "-vtp", "-ipt", "-ips", "-ipn", "-vl", "-ir", "-es", "-os", "-op", "-of", "-or", "-oc", "-oi", "-hc", "-fs", "-if", "-df", "-hci", "-so", "-ssl", "-vlh", "-k", "-dbs", "-en", "-et", "-ena", "-enc", "-ens", "-enm"]:
+    if not word in ["-h", "--help", "-d", "--disclaimer", "-ff", "-be", "-bd", "-bb", "-bo", "-br", "-bn", "-tc", "-tb", "-te", "-tcb", "-tbd", "-tmo", "-tf", "-ti", "-to", "-td", "-dr", "-hr", "-gr", "-gd", "-gw", "-gm", "-zb", "-zp", "-zl", "-zo", "-zk", "-ar", "-kr", "-ao", "-ad", "-om", "-oo", "-lr", "-eh", "-eu", "-ur", "-pe", "-fl", "-fo", "-lobf", "-lobp", "-lobs", "-lobn", "-lobw", "-lobl", "-rc", "-ro", "-cc", "-ce", "-cr", "-cs", "-cd", "-cq", "-cu", "-cb", "-cp", "-cm", "-co", "-vs", "-vm", "-vt", "-vn", "-vtt", "-vto", "-vr", "-vnr", "-dsr", "-vtr", "-vts", "-vta", "-vtp", "-ipt", "-ips", "-ipn", "-vl", "-ir", "-es", "-os", "-op", "-of", "-or", "-oc", "-oi", "-hc", "-fs", "-if", "-df", "-hci", "-so", "-ssl", "-vlh", "-k", "-dbs", "-en", "-et", "-ena", "-enc", "-ens", "-enm"]:
         print("INPUT ERROR: ", word, " is not one of the accepted input flags. Please see --help for more information.")
         os._exit(1)
 
@@ -667,6 +681,21 @@ def print_removed_entries(before, after, logman):
             if not "rows" in line:
                 log(line, logman)
         log("\n", logman)
+
+def print_table(header_list, values_lists):
+    values_lists_strings = []
+    for vl in values_lists:  
+        values_lists_strings.append(list(map(str, vl)))
+    lengths = [len(header) for header in header_list]
+    for vl in values_lists_strings:
+        lengths = [max(lle, len(vle)) for lle, vle in zip(lengths, vl)]
+    row_format = ""
+    for length in lengths:
+        row_format = row_format + "{:<"+str(length+2)+"}"
+    string_out = row_format.format(*header_list)+"\n"
+    for row in values_lists_strings:
+        string_out += row_format.format(*row)+"\n"
+    return string_out
 
 def clean_backup_catalog(minRetainedBackups, minRetainedDays, deleteBackups, outputCatalog, outputDeletedCatalog, outputNDeletedLBEntries, sqlman, logman):  
     if outputCatalog or outputDeletedCatalog:
@@ -1016,7 +1045,10 @@ def getNbrRows(schema, table, sqlman):
 
 def getAdapterName(schema, table, sqlman):
     return run_command(sqlman.hdbsql_jAQaxU + " \"SELECT R.ADAPTER_NAME FROM SYS.REMOTE_SOURCES R JOIN SYS.VIRTUAL_TABLES V ON R.REMOTE_SOURCE_NAME = V.REMOTE_SOURCE_NAME WHERE V.SCHEMA_NAME = '"+schema+"' and TABLE_NAME = '"+table+"'\"").strip(' ')
-    
+
+def getTableType(schema, table, sqlman):
+    return run_command(sqlman.hdbsql_jAQaxU + " \"SELECT TABLE_TYPE from SYS.TABLES where SCHEMA_NAME = '"+schema+"' and TABLE_NAME = '"+table+"'\"").strip(' ')
+
 def cdalias(alias, local_dbinstance):   # alias e.g. cdtrace, cdhdb, ...
     su_cmd = ''
     whoami = run_command('whoami').replace('\n','')
@@ -1162,6 +1194,54 @@ def defragment(fragmentationLimit, outputFragmentation, sqlman, logman):
         log("\n", logman)    
     return fragChange
     
+def lob_reorg_frag(lobFragMax, lobFragPacked, lobPrint, lobSchemasSQL, sqlman, logman): #M0372: lobFragMax: max frag pct allowed, if the lob column's fragmentation is relatively larger the reorg will be done,
+    sql_packed = ""  # also include packed
+    if not lobFragPacked:   # dont include packed (default)
+        sql_packed = " and LOB_STORAGE_TYPE != 'PACKED'"
+    sql_select_lobs = "select SCHEMA_NAME, TABLE_NAME, COLUMN_NAME, LOB_STORAGE_TYPE, FRAG_PCT from (select SCHEMA_NAME, TABLE_NAME, COLUMN_NAME, LOB_STORAGE_TYPE, TO_DECIMAL((PHYS_SIZE_MB-BIN_SIZE_MB)/PHYS_SIZE_MB*100, 3, 3) FRAG_PCT from (select SCHEMA_NAME, TABLE_NAME, COLUMN_NAME, LOB_STORAGE_TYPE, DISK_SIZE/1024/1024 PHYS_SIZE_MB, BINARY_SIZE/1024/1024 BIN_SIZE_MB from SYS.M_TABLE_LOB_STATISTICS where DISK_SIZE > 0 "+sql_packed+" "+lobSchemasSQL+")) where FRAG_PCT > "+lobFragMax
+    criteria_description = "LOB Columns With Too High Fragmentation"
+    print_header = ["Schema", "Table", "Column", "Lob_Storage_Type", "Fragmentation [%]"]
+    return lob_reorg(sql_select_lobs, criteria_description, lobPrint, print_header, sqlman, logman)
+
+def lob_reorg_small(lobFragSmall, lobPrint, lobSchemasSQL, sqlman, logman): #M0373: lobFragSmall: lob columns with too many small (binary size less than 4 kb) file lobs (M0373: 10 millions)
+    sql_select_lobs = "select SCHEMA_NAME, TABLE_NAME, COLUMN_NAME, LOB_STORAGE_TYPE, BINARY_SIZE/1024 BIN_SIZE_KB, LOB_COUNT from SYS.M_TABLE_LOB_STATISTICS where LOB_STORAGE_TYPE = 'FILE' and BINARY_SIZE/1024 < 4 and LOB_COUNT > "+lobFragSmall+"000000"+lobSchemasSQL 
+    criteria_description = "LOB Columns With Too Many Small File LOBs"
+    print_header = ["Schema", "Table", "Column", "Lob_Storage_Type", "Binary Size [KB]", "Number of LOBs"]
+    return lob_reorg(sql_select_lobs, criteria_description, lobPrint, print_header, sqlman, logman)
+
+def lob_reorg_num(lobFragNum, lobPrint, lobSchemasSQL, sqlman, logman): #M0374: lobFragNum: too many lobs (M0374: 50 millions)
+    sql_select_lobs = "select SCHEMA_NAME, TABLE_NAME, COLUMN_NAME, LOB_STORAGE_TYPE, LOB_COUNT from SYS.M_TABLE_LOB_STATISTICS where LOB_COUNT > "+lobFragNum+"000000"+lobSchemasSQL
+    criteria_description = "LOB Columns With Too Many File LOBs"
+    print_header = ["Schema", "Table", "Column", "Lob_Storage_Type", "Number of LOBs"]
+    return lob_reorg(sql_select_lobs, criteria_description, lobPrint, print_header, sqlman, logman)
+
+def lob_reorg(sql_select_lobs, criteria_description, lobPrint, print_header, sqlman, logman): 
+    error_select = "ERROR LOG: lob_reorg could not select on the SYS.M_TABLE_LOB_STATISTICS table"
+    [lob_columns, succeeded_select] = try_execute_sql(sql_select_lobs, error_select, sqlman, logman, always_execute = True)
+    lob_columns = lob_columns.splitlines(1)
+    nIssueLobsBefore = len(lob_columns)
+    lob_columns = [lob_column.strip('\n').strip('|').split('|') for lob_column in lob_columns]   
+    lob_columns = [[elem.strip(' ') for elem in lob_column] for lob_column in lob_columns] 
+    if succeeded_select and lobPrint:
+        print("\n"+criteria_description+" BEFORE:")
+        print(print_table(print_header, lob_columns))
+    for lob_column in lob_columns:
+        sql_online = "ONLINE" if getTableType(lob_column[0], lob_column[1], sqlman) == "COLUMN" else "" # ONLINE does not work for rowstore
+        sql = 'ALTER TABLE \\\"'+lob_column[0]+'\\\".\\\"'+lob_column[1]+'\\\" LOB REORGANIZE (\\\"'+lob_column[2]+'\\\") '+sql_online
+        error = "\nERROR: The user represented by the key "+sqlman.key+" could not lob-reorganize the table "+lob_column[0]+"."+lob_column[1]+". \nOne possible reason for this is insufficient privilege, \ne.g. lack of ALTER privilege on the schema "+lob_column[0]+".\n"
+        error += "From security point of view, there is unfortunately NO nice way to give privileges to the DB User to be allowed to do this.\nEither you can run hanacleaner as a user with ALTER on the schema (NOT recommended) or grant DATA ADMIN to the user (NOT recommended).\n"               
+        error += "If there is another error (i.e. not insufficient privilege) then please try to execute \n"+sql+"\nin e.g. the SQL editor in SAP HANA Studio. If you get the same error then this has nothing to do with hanacleaner"
+        [dummy_out, succeeded_frag] = try_execute_sql(sql, error, sqlman, logman)     
+    [lob_columns, succeeded_select] = try_execute_sql(sql_select_lobs, error_select, sqlman, logman, always_execute = True)
+    lob_columns = lob_columns.splitlines(1)
+    nIssueLobsAfter = len(lob_columns)
+    lob_columns = [lob_column.strip('\n').strip('|').split('|') for lob_column in lob_columns]   
+    lob_columns = [[elem.strip(' ') for elem in lob_column] for lob_column in lob_columns] 
+    if succeeded_select and lobPrint:
+        print("\n"+criteria_description+" AFTER:")
+        print(print_table(print_header, lob_columns)) 
+    return nIssueLobsBefore - nIssueLobsAfter
+
 def reclaim_rs_containers(outputRcContainers, sqlman, logman):
     nTablesWithMultipleRSContainersBefore = int(run_command(sqlman.hdbsql_jAQaxU + " \"SELECT COUNT(TABLE_NAME) FROM SYS.M_RS_TABLES WHERE CONTAINER_COUNT > 1\"").strip(' '))
     nContCount = int(run_command(sqlman.hdbsql_jAQaxU + " \"SELECT COUNT(CONTAINER_COUNT) FROM SYS.M_RS_TABLES WHERE CONTAINER_COUNT > 1\"").strip(' '))    
@@ -1543,6 +1623,12 @@ def main():
     pendingEmailsDays = "-1"
     fragmentationLimit = "-1" # percent
     outputFragmentation = "false"
+    lobFragMax = "-1"   # M0372
+    lobFragPacked = "false"
+    lobFragSmall = '-1' # M0373   (10 millions)
+    lobFragNum = '-1' # M0374     (50 millions) 
+    lobPrint = "false"
+    lobSchemas = [""]
     hanacleaner_interval = "-1"
     rcContainers = "false"
     outputRcContainers = "false"
@@ -1667,6 +1753,12 @@ def main():
                     pendingEmailsDays                 = getParameterFromFile(firstWord, '-pe', flagValue, flag_file, flag_log, pendingEmailsDays)
                     fragmentationLimit                = getParameterFromFile(firstWord, '-fl', flagValue, flag_file, flag_log, fragmentationLimit)
                     outputFragmentation               = getParameterFromFile(firstWord, '-fo', flagValue, flag_file, flag_log, outputFragmentation)
+                    lobFragMax                        = getParameterFromFile(firstWord, '-lobf', flagValue, flag_file, flag_log, lobFragMax)
+                    lobFragPacked                     = getParameterFromFile(firstWord, '-lobp', flagValue, flag_file, flag_log, lobFragPacked)
+                    lobFragSmall                      = getParameterFromFile(firstWord, '-lobs', flagValue, flag_file, flag_log, lobFragSmall)
+                    lobFragNum                        = getParameterFromFile(firstWord, '-lobn', flagValue, flag_file, flag_log, lobFragNum)
+                    lobPrint                          = getParameterFromFile(firstWord, '-lobw', flagValue, flag_file, flag_log, lobPrint)
+                    lobSchemas                        = getParameterListFromFile(firstWord, '-lobl', flagValue, flag_file, flag_log, lobSchemas)
                     rcContainers                      = getParameterFromFile(firstWord, '-rc', flagValue, flag_file, flag_log, rcContainers)
                     outputRcContainers                = getParameterFromFile(firstWord, '-ro', flagValue, flag_file, flag_log, outputRcContainers)
                     maxRawComp                        = getParameterFromFile(firstWord, '-cc', flagValue, flag_file, flag_log, maxRawComp)
@@ -1767,6 +1859,12 @@ def main():
     pendingEmailsDays                 = getParameterFromCommandLine(sys.argv, '-pe', flag_log, pendingEmailsDays)
     fragmentationLimit                = getParameterFromCommandLine(sys.argv, '-fl', flag_log, fragmentationLimit)
     outputFragmentation               = getParameterFromCommandLine(sys.argv, '-fo', flag_log, outputFragmentation)
+    lobFragMax                        = getParameterFromCommandLine(sys.argv, '-lobf', flag_log, lobFragMax)
+    lobFragPacked                     = getParameterFromCommandLine(sys.argv, '-lobp', flag_log, lobFragPacked)
+    lobFragSmall                      = getParameterFromCommandLine(sys.argv, '-lobs', flag_log, lobFragSmall)
+    lobFragNum                        = getParameterFromCommandLine(sys.argv, '-lobn', flag_log, lobFragNum)
+    lobPrint                          = getParameterFromCommandLine(sys.argv, '-lobw', flag_log, lobPrint)
+    lobSchemas                        = getParameterListFromCommandLine(sys.argv, '-lobl', flag_log, lobSchemas)
     rcContainers                      = getParameterFromCommandLine(sys.argv, '-rc', flag_log, rcContainers)
     outputRcContainers                = getParameterFromCommandLine(sys.argv, '-ro', flag_log, outputRcContainers)
     maxRawComp                        = getParameterFromCommandLine(sys.argv, '-cc', flag_log, maxRawComp)
@@ -2079,6 +2177,27 @@ def main():
     fragmentationLimit = int(fragmentationLimit)
     ### outputFragmentation, -fo
     outputFragmentation = checkAndConvertBooleanFlag(outputFragmentation, "-fo", logman)
+    ### lobFragMax, -lobf
+    if not is_integer(lobFragMax):
+        log("INPUT ERROR: -lobf must be an integer. Please see --help for more information.", logman, True)
+        os._exit(1)
+    ### lobFragPacked, -lobp
+    lobFragPacked = checkAndConvertBooleanFlag(lobFragPacked, "-lobp", logman)
+    ### lobFragSmall, -lobs
+    if not is_integer(lobFragSmall):
+        log("INPUT ERROR: -lobs must be an integer. Please see --help for more information.", logman, True)
+        os._exit(1)
+    ### lobFragNum, -lobn
+    if not is_integer(lobFragNum):
+        log("INPUT ERROR: -lobn must be an integer. Please see --help for more information.", logman, True)
+        os._exit(1)
+    ### lobPrint, -lobw
+    lobPrint = checkAndConvertBooleanFlag(lobPrint, "-lobw", logman)
+    ### lobSchemas, -lobl
+    if (lobFragMax != "-1" or lobFragSmall != "-1" or lobFragNum != "-1") and lobSchemas == [""]:
+        log("INPUT ERROR: -lobl must be provided if -lobf, -lobs, or -lobn are used. Please see --help for more information.", logman, True)
+        os._exit(1)
+    lobSchemasSQL = " and (SCHEMA_NAME = '" + "' or SCHEMA_NAME = '".join(lobSchemas) + "')"
     ### rcContainers, -rc
     rcContainers = checkAndConvertBooleanFlag(rcContainers, "-rc", logman)
     ### outputRcContainers, -ro
@@ -2413,6 +2532,27 @@ def main():
                             log("Defragmentation was not done since there was not enough fragmentation for any service", logman)
                     else:
                         log("    (Defragmentation was not done since -fl was negative (or not specified))", logman)
+                    if lobFragMax != "-1":
+                        nLobsWithTooHighFragDiff = lob_reorg_frag(lobFragMax, lobFragPacked, lobPrint, lobSchemasSQL, sqlman, logman)
+                        logmessage = str(nLobsWithTooHighFragDiff)+" is the difference of total number lob columns with too high fragmentation after LOB reorg (-lobf)"
+                        log(logmessage, logman)
+                        emailmessage += logmessage+"\n"
+                    else:
+                        log("    (LOB reorg due to fragmentation was not done since -lobf is -1 (or not specified))", logman)  
+                    if lobFragSmall != "-1":
+                        nLobsWithTooManySmallDiff = lob_reorg_small(lobFragSmall, lobPrint, lobSchemasSQL, sqlman, logman)
+                        logmessage = str(nLobsWithTooManySmallDiff)+" is the difference of total number lob columns with too many small LOBs after LOB reorg (-lobs)"
+                        log(logmessage, logman)
+                        emailmessage += logmessage+"\n"
+                    else:
+                        log("    (LOB reorg due to too many small LOBs was not done since -lobs is -1 (or not specified))", logman)  
+                    if lobFragNum != "-1":
+                        nLobsWithTooManyDiff = lob_reorg_num(lobFragNum, lobPrint, lobSchemasSQL, sqlman, logman)
+                        logmessage = str(nLobsWithTooManyDiff)+" is the difference of total number lob columns with too many LOBs after LOB reorg (-lobn)"
+                        log(logmessage, logman)
+                        emailmessage += logmessage+"\n"
+                    else:
+                        log("    (LOB reorg due to too many LOBs was not done since -lobn is -1 (or not specified))", logman) 
                     if rcContainers:
                         nReclaimedContainers = reclaim_rs_containers(outputRcContainers, sqlman, logman)
                         logmessage = nReclaimedContainers[1]+" row store containers were reclaimed from "+nReclaimedContainers[0]+" row store tables (-rc)"
