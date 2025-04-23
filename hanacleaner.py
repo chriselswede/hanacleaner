@@ -511,7 +511,7 @@ def get_key_info(dbuserkey, local_host, logman):
 
 def sql_for_backup_id_for_min_retained_days(minRetainedDays):
     oldestDayForKeepingBackup = datetime.now() + timedelta(days = -int(minRetainedDays))
-    return "SELECT TOP 1 ENTRY_ID, SYS_START_TIME from sys.m_backup_catalog where (ENTRY_TYPE_NAME = 'complete data backup' or ENTRY_TYPE_NAME = 'data snapshot') and STATE_NAME = 'successful' and SYS_START_TIME < '" + oldestDayForKeepingBackup.strftime('%Y-%m-%d')+" 00:00:00' order by SYS_START_TIME desc"
+    return "SELECT TOP 1 ENTRY_ID, SYS_START_TIME from sys.m_backup_catalog where (ENTRY_TYPE_NAME = 'complete data backup' or ENTRY_TYPE_NAME = 'data snapshot') and STATE_NAME = 'successful' and SYS_START_TIME >= '" + oldestDayForKeepingBackup.strftime('%Y-%m-%d')+" 00:00:00' order by SYS_START_TIME asc"
 
 
 def sql_for_backup_id_for_min_retained_backups(minRetainedBackups):
