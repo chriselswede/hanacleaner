@@ -122,7 +122,7 @@ def printHelp():
     print("         service is started: ALTER SYSTEM RECLAIM DATAVOLUME '<host>:<port>' 120 DEFRAGMENT,        default: -1 (not used)         ")
     print("         Note: If you use System Replication see Q19 in SAP Note 1999880.                                                          ")
     print(" -fo     output fragmentation [true/false], displays data volume statistics before and after defragmentation, default: false       ")
-    print("         ---- LOB REORG ----                                                                                                       ")
+    print("         ---- LOB REORG (only COLUMN store tables) ----                                                                            ")
     print(" -lobf   max allowed fragmentation for an LOB [%], an LOB column with higher percentage of fragmentation, i.e. (physical size -    ")
     print("         binary size)/physical size, will be reorganized, default: -1 (not used)                                                   ")
     print(" -lobp   fragmentation check also includes packed [true/false], decides if -lobf should also include LOBs that already are packed, ")
@@ -1226,19 +1226,20 @@ def lob_reorg(sql_select_lobs, criteria_description, lobPrint, print_header, sql
         print("\n"+criteria_description+" BEFORE:")
         print(print_table(print_header, lob_columns))
     for lob_column in lob_columns:
-        sql_online = "ONLINE" if getTableType(lob_column[0], lob_column[1], sqlman) == "COLUMN" else "" # ONLINE does not work for rowstore
-        sql = 'ALTER TABLE \\\"'+lob_column[0]+'\\\".\\\"'+lob_column[1]+'\\\" LOB REORGANIZE (\\\"'+lob_column[2]+'\\\") '+sql_online
-        error = "\nERROR: The user represented by the key "+sqlman.key+" could not lob-reorganize the table "+lob_column[0]+"."+lob_column[1]+". \nOne possible reason for this is insufficient privilege, \ne.g. lack of ALTER privilege on the schema "+lob_column[0]+".\n"
-        error += "From security point of view, there is unfortunately NO nice way to give privileges to the DB User to be allowed to do this.\nEither you can run hanacleaner as a user with ALTER on the schema (NOT recommended) or grant DATA ADMIN to the user (NOT recommended).\n"               
-        error += "If there is another error (i.e. not insufficient privilege) then please try to execute \n"+sql+"\nin e.g. the SQL editor in SAP HANA Studio. If you get the same error then this has nothing to do with hanacleaner"
-        [dummy_out, succeeded_frag] = try_execute_sql(sql, error, sqlman, logman)     
+        if getTableType(lob_column[0], lob_column[1], sqlman) == "COLUMN": # Martin F.: "This automatization should only be done on COLUMN store tables"
+            sql_online = "ONLINE"
+            sql = 'ALTER TABLE \\\"'+lob_column[0]+'\\\".\\\"'+lob_column[1]+'\\\" LOB REORGANIZE (\\\"'+lob_column[2]+'\\\") '+sql_online
+            error = "\nERROR: The user represented by the key "+sqlman.key+" could not lob-reorganize the table "+lob_column[0]+"."+lob_column[1]+". \nOne possible reason for this is insufficient privilege, \ne.g. lack of ALTER privilege on the schema "+lob_column[0]+".\n"
+            error += "From security point of view, there is unfortunately NO nice way to give privileges to the DB User to be allowed to do this.\nEither you can run hanacleaner as a user with ALTER on the schema (NOT recommended) or grant DATA ADMIN to the user (NOT recommended).\n"               
+            error += "If there is another error (i.e. not insufficient privilege) then please try to execute \n"+sql+"\nin e.g. the SQL editor in SAP HANA Studio. If you get the same error then this has nothing to do with hanacleaner"
+            [dummy_out, succeeded_frag] = try_execute_sql(sql, error, sqlman, logman)     
     [lob_columns, succeeded_select] = try_execute_sql(sql_select_lobs, error_select, sqlman, logman, always_execute = True)
     lob_columns = lob_columns.splitlines(1)
     nIssueLobsAfter = len(lob_columns)
     lob_columns = [lob_column.strip('\n').strip('|').split('|') for lob_column in lob_columns]   
     lob_columns = [[elem.strip(' ') for elem in lob_column] for lob_column in lob_columns] 
     if succeeded_select and lobPrint:
-        print("\n"+criteria_description+" AFTER:")
+        print("\n"+criteria_description+" AFTER (Note: the ROW store tables were excluded from the reorg):")
         print(print_table(print_header, lob_columns)) 
     return nIssueLobsBefore - nIssueLobsAfter
 
@@ -2534,25 +2535,25 @@ def main():
                         log("    (Defragmentation was not done since -fl was negative (or not specified))", logman)
                     if lobFragMax != "-1":
                         nLobsWithTooHighFragDiff = lob_reorg_frag(lobFragMax, lobFragPacked, lobPrint, lobSchemasSQL, sqlman, logman)
-                        logmessage = str(nLobsWithTooHighFragDiff)+" is the difference of total number lob columns with too high fragmentation after LOB reorg (-lobf)"
+                        logmessage = "After lob reorg on COLUMN store tables the difference of total number lob columns with too high fragmentation is "+str(nLobsWithTooHighFragDiff)+" (-lobf)"
                         log(logmessage, logman)
                         emailmessage += logmessage+"\n"
                     else:
-                        log("    (LOB reorg due to fragmentation was not done since -lobf is -1 (or not specified))", logman)  
+                        log("    (LOB reorg on COLUMN store tables due to fragmentation was not done since -lobf is -1 (or not specified))", logman)  
                     if lobFragSmall != "-1":
                         nLobsWithTooManySmallDiff = lob_reorg_small(lobFragSmall, lobPrint, lobSchemasSQL, sqlman, logman)
-                        logmessage = str(nLobsWithTooManySmallDiff)+" is the difference of total number lob columns with too many small LOBs after LOB reorg (-lobs)"
+                        logmessage = "After lob reorg on COLUMN store tables the difference of total number lob columns with too many small LOBs is "+str(nLobsWithTooManySmallDiff)+" (-lobs)"
                         log(logmessage, logman)
                         emailmessage += logmessage+"\n"
                     else:
-                        log("    (LOB reorg due to too many small LOBs was not done since -lobs is -1 (or not specified))", logman)  
+                        log("    (LOB reorg on COLUMN store tables due to too many small LOBs was not done since -lobs is -1 (or not specified))", logman)  
                     if lobFragNum != "-1":
                         nLobsWithTooManyDiff = lob_reorg_num(lobFragNum, lobPrint, lobSchemasSQL, sqlman, logman)
-                        logmessage = str(nLobsWithTooManyDiff)+" is the difference of total number lob columns with too many LOBs after LOB reorg (-lobn)"
+                        logmessage = "After lob reorg on COLUMN store tables the difference of total number lob columns with too many LOBs is "+str(nLobsWithTooManyDiff)+" (-lobn)"
                         log(logmessage, logman)
                         emailmessage += logmessage+"\n"
                     else:
-                        log("    (LOB reorg due to too many LOBs was not done since -lobn is -1 (or not specified))", logman) 
+                        log("    (LOB reorg on COLUMN store tables due to too many LOBs was not done since -lobn is -1 (or not specified))", logman) 
                     if rcContainers:
                         nReclaimedContainers = reclaim_rs_containers(outputRcContainers, sqlman, logman)
                         logmessage = nReclaimedContainers[1]+" row store containers were reclaimed from "+nReclaimedContainers[0]+" row store tables (-rc)"
