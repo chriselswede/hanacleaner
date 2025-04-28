@@ -372,7 +372,7 @@ class EmailSender:
             print("Mail Server: ", self.mailServer)
         else:
             print("Configured mail server will be used.")
-        print("Reciever Emails: ", self.recieverEmails)
+        print("Reciever Emails: ", self.receiverEmails)
 
 class VTCheck:
     def __init__(self, schema, virtualtable, column, action, explanation, severity):
